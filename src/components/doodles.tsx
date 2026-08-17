@@ -1,3 +1,7 @@
+"use client";
+
+import { useId } from "react";
+
 type DoodleProps = {
   className?: string;
 };
@@ -68,21 +72,31 @@ export function BodyMap({
 }
 
 export function MiniChart({ values, color = "var(--lime)" }: { values: number[]; color?: string }) {
+  const id = useId().replace(/:/g, "");
   if (values.length === 0) return null;
   const max = Math.max(...values);
   const min = Math.min(...values);
   const span = Math.max(values.length - 1, 1);
-  const points = values
-    .map((value, index) => `${4 + (index / span) * 92},${36 - ((value - min) / (max - min || 1)) * 26}`)
-    .join(" ");
-  const last = points.split(" ").at(-1)?.split(",") ?? ["96", "22"];
+  const coords = values.map((value, index) => ({
+    x: 4 + (index / span) * 92,
+    y: 38 - ((value - min) / (max - min || 1)) * 28,
+  }));
+  const line = coords.map((point) => `${point.x},${point.y}`).join(" ");
+  const last = coords.at(-1) ?? { x: 96, y: 22 };
   return (
     <svg className="mini-chart" viewBox="0 0 100 44" preserveAspectRatio="none" aria-hidden="true">
+      <defs>
+        <linearGradient id={`mini-${id}`} x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stopColor={color} stopOpacity="0.42" />
+          <stop offset="100%" stopColor={color} stopOpacity="0" />
+        </linearGradient>
+      </defs>
       <path d="M4 40H96" stroke="currentColor" opacity=".14" strokeDasharray="3 4" />
-      {values.length === 1 ? null : (
-        <polyline points={points} fill="none" stroke={color} strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" vectorEffect="non-scaling-stroke" />
+      {coords.length > 1 && <polygon points={`4,40 ${line} ${last.x},40`} fill={`url(#mini-${id})`} />}
+      {coords.length > 1 && (
+        <polyline points={line} fill="none" stroke={color} strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" vectorEffect="non-scaling-stroke" />
       )}
-      <circle cx={last[0]} cy={last[1]} r="2.2" fill={color} />
+      <circle cx={last.x} cy={last.y} r="2.4" fill={color} />
     </svg>
   );
 }

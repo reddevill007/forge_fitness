@@ -61,7 +61,9 @@ import {
   todayLabel,
   trainedDaysInMonth,
   weeklyStats,
-  weeklyVolumeTrend,
+  weeklyVolumeSeries,
+  weekdaySessionCounts,
+  currentStreak,
   workingSet,
 } from "@/src/lib/firebase/stats";
 import { getExerciseMedia } from "@/src/lib/firebase/firestore";
@@ -88,11 +90,15 @@ import {
 } from "@/src/components/doodles";
 import { exerciseMediaProvider } from "@/src/lib/exercise-media";
 import { AnatomeMuscleImpact } from "@/src/components/anatome-muscle-impact";
+import { AreaChart, WeekActivity } from "@/src/components/training-charts";
 import { AnatomeExerciseMuscleThumb, AnatomeExerciseMuscles } from "@/src/components/anatome-exercise-muscles";
 import { anatomeResolveExercise } from "@/src/lib/anatome";
 import { fetchExercise, fetchExercises } from "@/src/lib/exercises-client";
 import { useTheme } from "@/src/lib/theme";
 import { PageIntro, SectionTitle } from "@/src/components/ui";
+import { MuscleFocusSelect } from "@/src/components/muscle-focus-select";
+import { FocusMuscleMap } from "@/src/components/focus-muscle-map";
+import { parseFocusMuscles } from "@/src/lib/focus-muscles";
 import { useOnlineStatus } from "@/src/lib/offline";
 
 function formatTime(seconds: number) {
@@ -245,15 +251,24 @@ export function Dashboard({ onStart }: { onStart: () => void }) {
   const { profile, todaysWorkout, sessions, records, workouts, activeSession } = useUserData();
   const training = loggedSessions(sessions, activeSession);
   const week = weeklyStats(training);
-  const latestRecord = mergeRecords(records, recordsFromTraining(training, workouts))[0];
+  const volumeSeries = weeklyVolumeSeries(training, 8);
+  const weekdayCounts = weekdaySessionCounts(training);
+  const streak = currentStreak(training);
+  const lifts = exerciseStats(training, workouts).slice(0, 4);
+  const allRecords = mergeRecords(records, recordsFromTraining(training, workouts));
+  const latestRecord = allRecords[0];
   const name = greetingName(profile?.displayName ?? "there");
   const activeWorkout = todaysWorkout;
+  const thisWeekVolume = volumeSeries.at(-1)?.value ?? 0;
+  const lastWeekVolume = volumeSeries.at(-2)?.value ?? 0;
+  const volumeDelta = lastWeekVolume > 0 ? Math.round(((thisWeekVolume - lastWeekVolume) / lastWeekVolume) * 100) : null;
+  const recent = training.slice(0, 4);
   useCoachPage({
     currentPage: "dashboard",
     currentWorkout: activeWorkout ? { id: activeWorkout.id, name: activeWorkout.name, focus: activeWorkout.focus } : null,
   });
 
-  if (!activeWorkout) {
+  if (!activeWorkout && training.length === 0) {
     return (
       <div className="dashboard">
         <section className="greeting reveal">
@@ -273,7 +288,9 @@ export function Dashboard({ onStart }: { onStart: () => void }) {
     );
   }
 
-  const exerciseNames = activeWorkout.exercises.map((e) => e.name);
+  const exerciseNames = activeWorkout?.exercises.map((e) => e.name) ?? [];
+  const firstName = activeWorkout?.name.split(" ").slice(0, -1).join(" ") || activeWorkout?.name || "Train";
+  const lastName = activeWorkout?.name.split(" ").slice(-1)[0] ?? "";
 
   return (
     <div className="dashboard">
@@ -281,7 +298,11 @@ export function Dashboard({ onStart }: { onStart: () => void }) {
         <div>
           <span className="eyebrow">{todayLabel()}</span>
           <h1>Welcome back, {name}.</h1>
-          <p>{activeWorkout.exercises.length > 0 ? `Ready for ${activeWorkout.name}.` : "Add exercises to your active workout."}</p>
+          <p>
+            {activeWorkout
+              ? (activeWorkout.exercises.length > 0 ? `Ready for ${activeWorkout.name}.` : "Add exercises to your active workout.")
+              : "No session is scheduled today — your recent training is below."}
+          </p>
           <ContextualAiActions
             actions={[
               { label: "Explain my progress", prompt: "Explain my progress using my actual training data." },
@@ -289,65 +310,111 @@ export function Dashboard({ onStart }: { onStart: () => void }) {
             ]}
           />
         </div>
-        {week.sessions > 0 && (
-          <div className="readiness">
-            <span>This week</span>
-            <strong>{week.sessions}</strong>
-            <small>sessions logged</small>
-          </div>
-        )}
+        <div className="readiness">
+          <span>{streak > 0 ? "Streak" : "This week"}</span>
+          <strong>{streak > 0 ? streak : week.sessions}</strong>
+          <small>{streak > 0 ? "day streak" : "sessions logged"}</small>
+        </div>
       </section>
 
-      <section className="dashboard-grid">
-        <article className="workout-hero reveal delay-1">
-          <div className="hero-copy">
-            <span className="paper-tag"><Zap size={14} fill="currentColor" /> Active workout</span>
-            <h2>{activeWorkout.name.split(" ").slice(0, -1).join(" ") || activeWorkout.name} <em>{activeWorkout.name.split(" ").slice(-1)[0] ?? ""}</em></h2>
-            <p>{activeWorkout.focus || "Your session"}</p>
-            <div className="hero-meta">
-              <span><Dumbbell size={17} /> {activeWorkout.exercises.length} exercises</span>
-              <span><Clock3 size={17} /> ~{activeWorkout.duration} min</span>
+      {activeWorkout && (
+        <section className="dashboard-grid">
+          <article className="workout-hero reveal delay-1">
+            <div className="hero-copy">
+              <span className="paper-tag"><Zap size={14} fill="currentColor" /> Active workout</span>
+              <h2>{firstName} {lastName !== firstName ? <em>{lastName}</em> : null}</h2>
+              <p>{activeWorkout.focus || "Your session"}</p>
+              <div className="hero-meta">
+                <span><Dumbbell size={17} /> {activeWorkout.exercises.length} exercises</span>
+                <span><Clock3 size={17} /> ~{activeWorkout.duration} min</span>
+              </div>
+              <button
+                className="primary-button dark-button"
+                type="button"
+                onClick={onStart}
+                disabled={activeWorkout.exercises.length === 0}
+              >
+                <Play size={17} fill="currentColor" /> Start workout <ArrowRight size={17} />
+              </button>
             </div>
-            <button
-              className="primary-button dark-button"
-              type="button"
-              onClick={onStart}
-              disabled={activeWorkout.exercises.length === 0}
-            >
-              <Play size={17} fill="currentColor" /> Start workout <ArrowRight size={17} />
-            </button>
-          </div>
-          <DumbbellDoodle className="hero-dumbbell float-doodle" />
-          <div className="hero-noise" />
-        </article>
+            <DumbbellDoodle className="hero-dumbbell float-doodle" />
+            <div className="hero-noise" />
+          </article>
 
-        <article className="week-card reveal delay-2">
-          <div className="card-topline">
-            <div><span className="eyebrow">This week</span><h3>{week.sessions} session{week.sessions === 1 ? "" : "s"}</h3></div>
-          </div>
-          <div className="week-footer">
-            <span>{week.sets} sets</span>
-            <span>{formatVolume(week.volume)} kg</span>
-            <span>{formatDuration(week.trainingSeconds)}</span>
-          </div>
-        </article>
-      </section>
-
-      {week.sessions > 0 && (
-        <section className="stats-strip reveal delay-2" aria-label="Weekly statistics">
-          {[
-            { label: "Sessions", value: String(week.sessions).padStart(2, "0"), detail: "this week", icon: Dumbbell },
-            { label: "Volume", value: formatVolume(week.volume), detail: "kilograms", icon: BarChart3 },
-            { label: "Training", value: formatDuration(week.trainingSeconds), detail: "focused time", icon: Timer },
-            { label: "Sets", value: String(week.sets), detail: "completed", icon: Flame },
-          ].map(({ label, value, detail, icon: Icon }) => (
-            <article key={label}>
-              <Icon size={20} />
-              <div><span>{label}</span><strong>{value}</strong><small>{detail}</small></div>
-            </article>
-          ))}
+          <article className="week-card reveal delay-2">
+            <div className="card-topline">
+              <div>
+                <span className="eyebrow">This week</span>
+                <h3>{week.sessions} session{week.sessions === 1 ? "" : "s"}</h3>
+              </div>
+              {volumeDelta !== null && (
+                <small className={`week-delta ${volumeDelta >= 0 ? "up" : "down"}`}>
+                  {volumeDelta >= 0 ? "+" : ""}{volumeDelta}% vs last week
+                </small>
+              )}
+            </div>
+            <WeekActivity points={weekdayCounts} />
+            <div className="week-footer">
+              <span>{week.sets} sets</span>
+              <span>{formatVolume(week.volume)} kg</span>
+              <span>{formatDuration(week.trainingSeconds)}</span>
+            </div>
+          </article>
         </section>
       )}
+
+      <section className="stats-strip reveal delay-2" aria-label="Training statistics">
+        {[
+          { label: "Sessions", value: String(week.sessions).padStart(2, "0"), detail: "this week", icon: Dumbbell },
+          { label: "Volume", value: formatVolume(week.volume), detail: "kilograms", icon: BarChart3 },
+          { label: "Training", value: formatDuration(week.trainingSeconds), detail: "focused time", icon: Timer },
+          { label: "Sets", value: String(week.sets), detail: "completed", icon: Flame },
+        ].map(({ label, value, detail, icon: Icon }) => (
+          <article key={label}>
+            <Icon size={20} />
+            <div><span>{label}</span><strong>{value}</strong><small>{detail}</small></div>
+          </article>
+        ))}
+      </section>
+
+      <section className="dash-charts">
+        <article className="paper-panel reveal">
+          <SectionTitle
+            eyebrow="Load"
+            title="Weekly volume"
+            action={<Link className="text-button" href="/analytics">Full analytics <ArrowUpRight size={15} /></Link>}
+          />
+          {training.length > 0 ? (
+            <AreaChart points={volumeSeries} />
+          ) : (
+            <p className="chart-empty">Log a session to see volume over the last 8 weeks.</p>
+          )}
+        </article>
+        <article className="paper-panel reveal delay-1">
+          <SectionTitle eyebrow="Top lifts" title="Best recent loads" />
+          {lifts.length > 0 ? (
+            <div className="dash-lifts">
+              {lifts.map((lift) => {
+                const trend = exerciseWeightTrend(training, workouts, lift.exerciseId);
+                return (
+                  <div key={lift.exerciseId} className="dash-lift">
+                    <div>
+                      <strong>{lift.name}</strong>
+                      <small>{lift.sets} sets · {formatVolume(lift.volume)} kg</small>
+                    </div>
+                    <div className="dash-lift-chart">
+                      <MiniChart values={trend.values} />
+                    </div>
+                    <span>{lift.bestWeight} kg</span>
+                  </div>
+                );
+              })}
+            </div>
+          ) : (
+            <p className="chart-empty">Your heaviest lifts show up here after you log sets.</p>
+          )}
+        </article>
+      </section>
 
       <section className="lower-grid">
         {exerciseNames.length > 0 && (
@@ -371,7 +438,22 @@ export function Dashboard({ onStart }: { onStart: () => void }) {
         )}
       </section>
 
-      {activeWorkout.exercises.length > 0 && (
+      {recent.length > 0 && (
+        <section className="paper-panel dash-recent reveal">
+          <SectionTitle eyebrow="Journal" title="Recent sessions" action={<Link className="text-button" href="/history">History <ArrowUpRight size={15} /></Link>} />
+          <div className="dash-recent-list">
+            {recent.map((session) => (
+              <Link className="dash-recent-row" href="/history" key={session.id}>
+                <span>{new Intl.DateTimeFormat("en-US", { weekday: "short", month: "short", day: "numeric" }).format(new Date(sessionDate(session)))}</span>
+                <strong>{session.workoutName}</strong>
+                <small>{sessionSetCount(session)} sets · {formatVolume(sessionVolume(session))} kg · {formatDuration(session.durationSeconds)}</small>
+              </Link>
+            ))}
+          </div>
+        </section>
+      )}
+
+      {activeWorkout && activeWorkout.exercises.length > 0 && (
         <section className="today-list reveal">
           <SectionTitle eyebrow="On deck" title={activeWorkout.name} action={<Link className="outline-button" href="/workouts">Edit workout <PencilLine size={15} /></Link>} />
           <div className="exercise-rows">
@@ -517,7 +599,7 @@ export function WorkoutsPage({ onStart }: { onStart: () => void }) {
         <form className="paper-panel workout-create-form reveal" onSubmit={handleCreate}>
           <h3>New workout</h3>
           <label>Name<input value={name} onChange={(e) => setName(e.target.value)} placeholder="Push A" required /></label>
-          <label>Focus<input value={focus} onChange={(e) => setFocus(e.target.value)} placeholder="Chest · Shoulders · Triceps" /></label>
+          <MuscleFocusSelect value={focus} onChange={setFocus} />
           <div className="form-actions">
             <button type="button" className="outline-button" onClick={() => setCreating(false)}>Cancel</button>
             <button type="submit" className="primary-button">Create workout</button>
@@ -570,11 +652,11 @@ export function WorkoutsPage({ onStart }: { onStart: () => void }) {
                   value={selected.name}
                   onCommit={(value) => void markSaved(patchWorkout(selected.id, { name: value }))}
                 />
-                <AutosaveTextInput
+                <MuscleFocusSelect
                   key={`${selected.id}-focus`}
-                  label="Focus"
                   value={selected.focus}
-                  onCommit={(value) => void markSaved(patchWorkout(selected.id, { focus: value }))}
+                  showMap={false}
+                  onChange={(value) => void markSaved(patchWorkout(selected.id, { focus: value }))}
                 />
               </div>
               <div className="builder-stats">
@@ -588,7 +670,6 @@ export function WorkoutsPage({ onStart }: { onStart: () => void }) {
               )}
               {selected.exercises.map((exercise, index) => {
                 const thumb = exercise.gifUrl || exercise.imageUrl || youtubePoster(exercise.videoUrl || videoUrlForExercise(exercise.exerciseId, exercise.name) || "");
-                const trend = exerciseWeightTrend(training, workouts, exercise.exerciseId);
                 return (
                 <article
                   key={exercise.id}
@@ -623,28 +704,29 @@ export function WorkoutsPage({ onStart }: { onStart: () => void }) {
                     {exercise.alternatives && exercise.alternatives.length > 0 && (
                       <small>Alts: {exercise.alternatives.map((alt) => alt.name).join(" · ")}</small>
                     )}
-                    <ExerciseProgressGraph values={trend.values} latest={trend.latest} />
                   </div>
-                  <div className="reorder-buttons">
-                    <button type="button" className="icon-button" aria-label="Move up" disabled={index === 0} onClick={() => moveExercise(index, -1)}><ChevronUp size={16} /></button>
-                    <button type="button" className="icon-button" aria-label="Move down" disabled={index === selected.exercises.length - 1} onClick={() => moveExercise(index, 1)}><ChevronDown size={16} /></button>
+                  <div className="builder-exercise-actions">
+                    <div className="reorder-buttons">
+                      <button type="button" className="icon-button" aria-label="Move up" disabled={index === 0} onClick={() => moveExercise(index, -1)}><ChevronUp size={16} /></button>
+                      <button type="button" className="icon-button" aria-label="Move down" disabled={index === selected.exercises.length - 1} onClick={() => moveExercise(index, 1)}><ChevronDown size={16} /></button>
+                    </div>
+                    <button
+                      type="button"
+                      className="outline-button view-day-button"
+                      onClick={() => setPreviewIndex(index)}
+                    >
+                      <Eye size={15} /> View
+                    </button>
+                    <button
+                      type="button"
+                      className="outline-button alt-button"
+                      disabled={(exercise.alternatives?.length ?? 0) >= 2}
+                      onClick={() => setAltForId(exercise.id)}
+                    >
+                      Alt {(exercise.alternatives?.length ?? 0)}/2
+                    </button>
+                    <button type="button" className="icon-button" aria-label={`Remove ${exercise.name}`} onClick={() => removeExercise(exercise.id)}><Trash2 size={17} /></button>
                   </div>
-                  <button
-                    type="button"
-                    className="outline-button view-day-button"
-                    onClick={() => setPreviewIndex(index)}
-                  >
-                    <Eye size={15} /> View
-                  </button>
-                  <button
-                    type="button"
-                    className="outline-button alt-button"
-                    disabled={(exercise.alternatives?.length ?? 0) >= 2}
-                    onClick={() => setAltForId(exercise.id)}
-                  >
-                    Alt {(exercise.alternatives?.length ?? 0)}/2
-                  </button>
-                  <button type="button" className="icon-button" aria-label={`Remove ${exercise.name}`} onClick={() => removeExercise(exercise.id)}><Trash2 size={17} /></button>
                 </article>
                 );
               })}
@@ -664,6 +746,10 @@ export function WorkoutsPage({ onStart }: { onStart: () => void }) {
             )}
           </section>
           <aside className="builder-side reveal delay-2">
+            <article className="paper-panel compact-panel">
+              <h3>Focus map</h3>
+              <FocusMuscleMap muscles={parseFocusMuscles(selected.focus)} />
+            </article>
             <article className="paper-panel compact-panel workout-graphs">
               <h3>Exercise graphs</h3>
               {selected.exercises.length === 0 && <p>Add movements to see load over sessions.</p>}
@@ -1807,7 +1893,7 @@ export function AnalyticsPage() {
   const { sessions, workouts, activeSession } = useUserData();
   const completed = loggedSessions(sessions, activeSession);
   const week = weeklyStats(completed);
-  const volumeTrend = weeklyVolumeTrend(completed);
+  const volumeSeries = weeklyVolumeSeries(completed, 8);
   const totalVolume = completed.reduce((total, session) => total + sessionVolume(session), 0);
   const avgDuration = completed.length
     ? Math.round(completed.reduce((total, session) => total + session.durationSeconds, 0) / completed.length / 60)
@@ -1866,11 +1952,7 @@ export function AnalyticsPage() {
       <section className="analytics-grid">
         <article className="volume-card paper-panel reveal">
           <SectionTitle eyebrow="Training load" title="Weekly volume" />
-          <div className="bar-chart">
-            {volumeTrend.map((value, index) => (
-              <div key={index}><i style={{ height: `${Math.max(value, 4)}%` }} className={index === volumeTrend.length - 1 ? "active" : ""} /><span>W{index + 1}</span></div>
-            ))}
-          </div>
+          <AreaChart points={volumeSeries} />
         </article>
         <article className="consistency-card reveal delay-1">
           <span className="eyebrow">This week</span><strong>{week.sets}</strong><h3>sets logged</h3><p>{formatDuration(week.trainingSeconds)} of training time.</p><Flame size={80} fill="currentColor" />

@@ -432,6 +432,7 @@ kbd {
   display: flex;
   align-items: end;
   justify-content: space-between;
+  gap: 18px;
   margin-bottom: 0;
 }
 
@@ -539,9 +540,11 @@ kbd {
 
 .workout-hero h2 {
   margin: 24px 0 4px;
-  font-size: clamp(48px, 6vw, 80px);
+  max-width: 16ch;
+  font-size: clamp(36px, 6vw, 80px);
   letter-spacing: -.075em;
   line-height: .9;
+  overflow-wrap: anywhere;
 }
 
 .workout-hero h2 em,
@@ -572,7 +575,8 @@ kbd {
 
 .hero-meta {
   display: flex;
-  gap: 20px;
+  flex-wrap: wrap;
+  gap: 16px 20px;
   margin: 30px 0 22px;
 }
 
@@ -764,11 +768,223 @@ kbd {
 .week-footer {
   display: flex;
   justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
   border-top: 1px dashed var(--line-strong);
   padding-top: 16px;
   color: var(--muted);
   font-size: 9px;
   font-weight: 750;
+}
+
+.week-delta {
+  border-radius: 999px;
+  padding: 5px 9px;
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: .04em;
+}
+
+.week-delta.up {
+  background: var(--lime-soft);
+  color: var(--lime-dark);
+}
+
+.week-delta.down {
+  background: color-mix(in srgb, var(--orange) 18%, var(--paper));
+  color: var(--orange);
+}
+
+.dash-charts {
+  display: grid;
+  grid-template-columns: minmax(0, 1.2fr) minmax(0, .9fr);
+  gap: var(--gap-stack);
+}
+
+.chart-empty {
+  margin: 18px 0 0;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.forge-chart {
+  position: relative;
+  margin-top: 8px;
+}
+
+.forge-chart-area svg {
+  display: block;
+  width: 100%;
+  height: 180px;
+}
+
+.forge-chart-callout {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.forge-chart-callout strong {
+  font-size: 28px;
+  letter-spacing: -.05em;
+}
+
+.forge-chart-callout small {
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+}
+
+.forge-bars {
+  display: grid;
+  height: 180px;
+  gap: 8px;
+  align-items: end;
+  margin-top: 16px;
+}
+
+.forge-bars > div {
+  display: flex;
+  min-width: 0;
+  height: 100%;
+  flex-direction: column;
+  justify-content: end;
+  align-items: center;
+  gap: 6px;
+  text-align: center;
+}
+
+.forge-bars span {
+  color: var(--muted);
+  font-size: 8px;
+  font-weight: 800;
+}
+
+.forge-bars i {
+  display: block;
+  width: 100%;
+  min-height: 8px;
+  border-radius: 8px 8px 3px 3px;
+  background: var(--paper-3);
+}
+
+.forge-bars .is-active i {
+  background: var(--lime);
+}
+
+.forge-bars small {
+  color: var(--muted);
+  font-size: 8px;
+  font-weight: 700;
+}
+
+.week-activity {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 8px;
+  height: 140px;
+  margin: 22px 0 18px;
+  align-items: end;
+}
+
+.week-activity > div {
+  display: flex;
+  height: 100%;
+  flex-direction: column;
+  justify-content: end;
+  align-items: center;
+  gap: 8px;
+}
+
+.week-activity i {
+  display: block;
+  width: 100%;
+  max-width: 28px;
+  border-radius: 999px 999px 8px 8px;
+  background: var(--paper-3);
+}
+
+.week-activity .is-today i {
+  background: var(--lime);
+}
+
+.week-activity span {
+  color: var(--muted);
+  font-size: 8px;
+  font-weight: 800;
+  letter-spacing: .04em;
+}
+
+.dash-lifts {
+  display: grid;
+  gap: 4px;
+  margin-top: 8px;
+}
+
+.dash-lift {
+  display: grid;
+  grid-template-columns: minmax(0, 1.1fr) minmax(72px, .7fr) auto;
+  gap: 12px;
+  align-items: center;
+  border-bottom: 1px dashed var(--line);
+  padding: 12px 0;
+}
+
+.dash-lift strong,
+.dash-lift small {
+  display: block;
+}
+
+.dash-lift strong {
+  font-size: 13px;
+}
+
+.dash-lift small {
+  margin-top: 3px;
+  color: var(--muted);
+  font-size: 10px;
+}
+
+.dash-lift-chart {
+  height: 40px;
+  min-width: 0;
+}
+
+.dash-lift > span {
+  color: var(--lime-dark);
+  font-size: 13px;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+.dash-recent-list {
+  display: grid;
+  gap: 0;
+  margin-top: 4px;
+}
+
+.dash-recent-row {
+  display: grid;
+  grid-template-columns: 110px minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: baseline;
+  border-bottom: 1px dashed var(--line);
+  padding: 14px 0;
+  color: inherit;
+  text-decoration: none;
+}
+
+.dash-recent-row span,
+.dash-recent-row small {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.dash-recent-row strong {
+  font-size: 14px;
 }
 
 .stats-strip {
@@ -1180,7 +1396,7 @@ kbd {
 .builder-exercises article {
   position: relative;
   display: grid;
-  grid-template-columns: 22px 64px minmax(0, 1fr) auto auto auto 38px;
+  grid-template-columns: 22px 64px minmax(0, 1fr) auto;
   min-height: 83px;
   align-items: start;
   gap: 10px;
@@ -1228,6 +1444,10 @@ kbd {
   width: 100%;
   height: 100%;
   object-fit: cover;
+}
+
+.builder-exercise-info {
+  min-width: 0;
 }
 
 .builder-exercise-info strong,
@@ -4076,7 +4296,8 @@ kbd {
   .main-shell { margin-left: 210px; }
   .sidebar-panel { padding-inline: 12px; }
   .dashboard-grid,
-  .lower-grid { grid-template-columns: 1fr; }
+  .lower-grid,
+  .dash-charts { grid-template-columns: 1fr; }
   .week-card { min-height: auto; }
   .builder-grid { grid-template-columns: 1fr; }
   .builder-side { display: grid; grid-template-columns: 1fr 1fr; }
@@ -4149,6 +4370,11 @@ kbd {
   .settings-grid { grid-template-columns: 1fr; }
   .settings-nav { flex-direction: row; overflow-x: auto; padding-bottom: 4px; }
   .settings-nav button { flex: none; }
+  .page-intro { min-height: auto; align-items: start; flex-direction: column; gap: 16px; }
+  .page-intro .page-actions { width: 100%; }
+  .builder-title,
+  .workout-name-row { align-items: start; flex-direction: column; gap: 14px; }
+  .workout-edit-fields { width: 100%; }
 }
 
 @media (max-width: 620px) {
@@ -4165,17 +4391,18 @@ kbd {
   .topbar-actions .icon-button:first-child { display: none; }
   .page-shell { padding: 24px 18px 72px; }
   .save-toast { right: 108px; bottom: 16px; left: 16px; justify-content: center; }
-  .greeting { align-items: start; }
+  .greeting { align-items: start; flex-wrap: wrap; }
   .greeting h1,
-  .page-intro h1 { font-size: 39px; }
-  .greeting p { max-width: 230px; font-size: 10px; line-height: 1.5; }
+  .page-intro h1 { font-size: clamp(30px, 9vw, 39px); }
+  .greeting p { max-width: none; font-size: 13px; line-height: 1.5; }
+  .greeting > div { min-width: 0; flex: 1 1 180px; }
   .readiness { width: 78px; height: 78px; }
   .readiness strong { font-size: 26px; }
   .readiness small { display: none; }
   .dashboard-grid { gap: var(--gap-stack); }
-  .workout-hero { min-height: 370px; padding: var(--pad-hero); }
-  .workout-hero h2 { margin-top: 25px; font-size: 64px; }
-  .hero-dumbbell { top: auto; right: 5px; bottom: 25px; width: 48%; }
+  .workout-hero { min-height: auto; padding: var(--pad-hero); }
+  .workout-hero h2 { margin-top: 18px; font-size: clamp(32px, 11vw, 52px); }
+  .hero-dumbbell { top: auto; right: -4px; bottom: 8px; width: 42%; opacity: .28; pointer-events: none; }
   .workout-hero .hand-note { right: 25px; bottom: 134px; }
   .hero-meta { margin-top: 25px; }
   .week-card { padding: var(--pad-card); }
@@ -4205,16 +4432,51 @@ kbd {
   .prescription { text-align: right; }
   .today-list .section-heading .outline-button { display: none; }
   .workout-start-mobile { display: flex; width: 100%; margin-top: 15px; min-height: 49px; }
-  .page-intro { min-height: auto; align-items: start; flex-direction: column; margin-bottom: 0; }
-  .page-intro .primary-button,
-  .page-intro .outline-button { width: 100%; }
+  .page-intro { min-height: auto; align-items: start; flex-direction: column; gap: 16px; }
+  .page-intro .page-actions { width: 100%; }
+  .page-intro .page-actions > * { flex: 1 1 calc(50% - .4rem); min-width: 140px; }
+  .workout-tabs {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    margin: 0 -8px;
+    padding: 0 8px 4px;
+    scrollbar-width: none;
+  }
+  .workout-tabs::-webkit-scrollbar { display: none; }
+  .workout-tabs button { flex: 0 0 auto; }
+  .builder-title,
+  .workout-name-row {
+    align-items: start;
+    flex-direction: column;
+    gap: 14px;
+  }
+  .builder-title-actions,
+  .builder-stats { justify-content: flex-start; }
+  .workout-edit-fields { grid-template-columns: 1fr; width: 100%; }
+  .dash-recent-row {
+    grid-template-columns: 1fr auto;
+    gap: 6px 12px;
+  }
+  .dash-recent-row span { grid-column: 1 / -1; }
   .builder-main { padding: var(--pad-card); }
   .workout-name-row { align-items: start; }
   .builder-stats { gap: 10px; }
-  .builder-exercises article { grid-template-columns: 18px 52px 1fr auto 38px; }
-  .builder-exercises article > .alt-button,
-  .builder-exercises article > .reorder-buttons { display: none; }
+  .builder-exercises article {
+    grid-template-columns: 20px 52px minmax(0, 1fr);
+  }
+  .builder-exercise-actions {
+    grid-column: 1 / -1;
+    justify-content: flex-start;
+    padding-top: 4px;
+  }
+  .drag-handle { display: none; }
+  .builder-exercises article { padding-left: 0; }
+  .muscle-focus-layout.has-map { grid-template-columns: 1fr; }
   .builder-side { grid-template-columns: 1fr; }
+  .dash-lift {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+  .dash-lift-chart { grid-column: 1 / -1; }
   .exercise-grid { grid-template-columns: 1fr; }
   .exercise-media { height: 220px; }
   .catalog-search kbd { display: none; }
@@ -4615,8 +4877,18 @@ kbd {
 
 .builder-title-actions {
   display: flex;
+  flex-wrap: wrap;
   gap: 0.5rem;
   align-items: center;
+  justify-content: flex-end;
+}
+
+.builder-exercise-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: start;
+  justify-content: flex-end;
 }
 
 .empty-inline {
@@ -4665,10 +4937,35 @@ kbd {
   align-items: center;
   gap: 6px;
   padding: 5px 9px;
+  border: 1px solid transparent;
   border-radius: 999px;
   background: var(--paper-3);
+  color: inherit;
+  font: inherit;
   font-size: 11px;
   text-transform: capitalize;
+}
+
+button.legend-pill {
+  cursor: pointer;
+}
+
+button.legend-pill:hover {
+  background: color-mix(in srgb, var(--chip, var(--lime)) 28%, var(--paper-3));
+}
+
+button.legend-pill.is-active {
+  border-color: color-mix(in srgb, var(--chip, var(--lime-dark)) 55%, transparent);
+  background: color-mix(in srgb, var(--chip, var(--lime)) 34%, var(--paper));
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--chip, var(--lime)) 22%, transparent);
+}
+
+button.legend-pill.is-dim {
+  opacity: .38;
+}
+
+button.legend-pill.is-dim:hover {
+  opacity: .72;
 }
 
 .legend-pill i {
@@ -4717,8 +5014,8 @@ kbd {
 }
 
 .workout-edit-fields {
-  grid-template-columns: 1fr 1fr;
-  width: min(520px, 100%);
+  grid-template-columns: 1fr;
+  width: min(560px, 100%);
 }
 
 .builder-exercise-meta {
@@ -4737,6 +5034,238 @@ kbd {
   border-radius: 10px;
   border: 1px solid var(--line);
   background: var(--paper);
+}
+
+.muscle-focus {
+  position: relative;
+  display: grid;
+  gap: 0.35rem;
+}
+
+.muscle-focus > span,
+.workout-create-form .muscle-focus > span {
+  font-size: 11px;
+}
+
+.muscle-focus-field {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  min-height: 42px;
+  padding: 6px 8px;
+  border: 1px solid color-mix(in srgb, var(--lime-dark) 35%, var(--line));
+  border-radius: 14px;
+  background: var(--paper);
+}
+
+.muscle-focus-field.is-open {
+  border-color: var(--lime-dark);
+  box-shadow: 0 0 0 3px var(--lime-soft);
+}
+
+.muscle-focus-layout {
+  display: grid;
+  gap: 12px;
+  align-items: start;
+}
+
+.muscle-focus-layout.has-map {
+  grid-template-columns: minmax(0, 1fr) minmax(150px, 200px);
+}
+
+.muscle-focus-layout > div:first-child {
+  position: relative;
+  min-width: 0;
+}
+
+.muscle-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-height: 28px;
+  border: 1px solid color-mix(in srgb, var(--chip, var(--lime-dark)) 42%, transparent);
+  border-radius: 999px;
+  padding: 0 8px 0 8px;
+  background: color-mix(in srgb, var(--chip, var(--lime)) 22%, var(--paper));
+  color: var(--ink);
+  font-size: 11px;
+  font-weight: 750;
+}
+
+.muscle-chip i {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--chip, var(--lime-dark));
+}
+
+.muscle-chip svg {
+  flex: none;
+  opacity: .7;
+}
+
+.muscle-chip:hover {
+  background: color-mix(in srgb, var(--chip, var(--lime)) 38%, var(--paper));
+}
+
+.focus-muscle-map {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+}
+
+.focus-muscle-map .view-toggle {
+  position: relative;
+  top: auto;
+  left: auto;
+}
+
+.focus-muscle-map .view-toggle button {
+  padding: 5px 9px;
+}
+
+.focus-muscle-map .focus-muscle-svg {
+  min-height: 260px;
+  max-height: 340px;
+  margin: 0;
+  padding: 8px;
+  border-radius: 18px;
+  background: color-mix(in srgb, var(--paper-3) 70%, transparent);
+}
+
+.focus-muscle-map.is-compact .focus-muscle-svg {
+  min-height: 190px;
+  max-height: 240px;
+}
+
+.focus-muscle-map .focus-muscle-svg .anatome-svg-inner svg {
+  max-height: 320px;
+}
+
+.focus-muscle-map.is-compact .focus-muscle-svg .anatome-svg-inner svg {
+  max-height: 220px;
+}
+
+.anatome-svg-inner.is-updating,
+.focus-muscle-map .anatome-svg-inner.is-updating {
+  opacity: .62;
+  transition: opacity .2s ease;
+}
+
+.focus-muscle-map .anatome-loading {
+  display: grid;
+  min-height: inherit;
+  place-items: center;
+  padding: 16px;
+  text-align: center;
+}
+
+.focus-muscle-map .legend-pill {
+  background: color-mix(in srgb, var(--chip, var(--paper-3)) 22%, var(--paper-3));
+}
+
+.focus-muscle-map .legend-pill i {
+  background: var(--chip, var(--lime-dark));
+}
+
+.muscle-focus-add {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 28px;
+  border: 1px dashed var(--line-strong);
+  border-radius: 999px;
+  padding: 0 10px;
+  background: transparent;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.muscle-focus-add:hover,
+.muscle-focus-field.is-open .muscle-focus-add {
+  border-color: var(--lime-dark);
+  color: var(--ink);
+}
+
+.muscle-focus-menu {
+  position: absolute;
+  z-index: 8;
+  top: calc(100% + 6px);
+  right: 0;
+  left: 0;
+  max-height: 320px;
+  overflow: auto;
+  margin: 0;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  padding: 8px;
+  background: var(--paper-2);
+  box-shadow: var(--shadow);
+}
+
+.muscle-focus-search {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 0 10px;
+  background: var(--paper);
+}
+
+.muscle-focus-search input {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  padding: 10px 0;
+  background: transparent;
+  font-size: 13px;
+}
+
+.muscle-focus-empty {
+  margin: 8px 4px 4px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.muscle-focus-menu section {
+  padding: 6px 2px 8px;
+}
+
+.muscle-focus-menu section + section {
+  border-top: 1px dashed var(--line);
+}
+
+.muscle-focus-menu .eyebrow {
+  padding: 6px 8px 4px;
+}
+
+.muscle-focus-menu ul {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.muscle-focus-menu button {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  min-height: 34px;
+  border: 0;
+  border-radius: 10px;
+  padding: 0 10px;
+  background: transparent;
+  color: inherit;
+  font-size: 13px;
+  font-weight: 650;
+  text-align: left;
+}
+
+.muscle-focus-menu button:hover {
+  background: var(--lime-soft);
 }
 
 .reorder-buttons {

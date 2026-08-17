@@ -38,6 +38,18 @@ export async function fetchExercises(params: {
   return cachedJson<ExerciseListResponse>(`exercises:${url}`, () => fetchWithCache(url));
 }
 
+export async function fetchExerciseMuscles() {
+  const url = "/api/exercises/muscles";
+  try {
+    return await cachedJson<{ items: string[]; groups: Array<{ region: string; muscles: string[] }> }>(
+      "exercise-muscles",
+      () => fetchWithCache(url),
+    );
+  } catch {
+    return { items: [], groups: [] };
+  }
+}
+
 export async function fetchExercise(id: string) {
   const url = `/api/exercises/${id}`;
   try {

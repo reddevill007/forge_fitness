@@ -1,3 +1,4 @@
+import { uniqueMuscleNames } from "@/src/lib/focus-muscles";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import type { Exercise } from "@/src/types/fitness";
@@ -27,6 +28,16 @@ export async function getExerciseById(id: string) {
   const exercises = await getExercises();
   const exercise = exercises.find((item) => item.id === id);
   return exercise ? withResolvedMedia(exercise) : null;
+}
+
+export async function getCatalogMuscleNames() {
+  const exercises = await getExercises();
+  const names: string[] = [];
+  for (const exercise of exercises) {
+    if (exercise.target) names.push(exercise.target);
+    names.push(...(exercise.secondary_muscles ?? []));
+  }
+  return uniqueMuscleNames(names);
 }
 
 export function matchesExerciseGroup(exercise: Exercise, group: string) {

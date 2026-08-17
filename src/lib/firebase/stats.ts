@@ -295,27 +295,66 @@ export function exerciseWeightTrend(
 }
 
 export function weeklyVolumeTrend(sessions: StoredSession[], weeks = 8) {
-  const now = new Date();
-  const buckets: number[] = [];
+  const series = weeklyVolumeSeries(sessions, weeks);
+  const max = Math.max(...series.map((point) => point.value), 1);
+  return series.map((point) => Math.round((point.value / max) * 100));
+}
 
-  for (let i = weeks - 1; i >= 0; i--) {
+export type SeriesPoint = { label: string; value: number };
+
+export function weeklyVolumeSeries(sessions: StoredSession[], weeks = 8): SeriesPoint[] {
+  const now = new Date();
+  const points: SeriesPoint[] = [];
+  for (let i = weeks - 1; i >= 0; i -= 1) {
     const weekStart = startOfWeek(new Date(now));
     weekStart.setDate(weekStart.getDate() - i * 7);
     const weekEnd = new Date(weekStart);
     weekEnd.setDate(weekEnd.getDate() + 7);
-
     const volume = sessions
       .filter((session) => {
         const date = new Date(sessionDate(session));
         return date >= weekStart && date < weekEnd;
       })
       .reduce((total, session) => total + sessionVolume(session), 0);
-
-    buckets.push(volume);
+    points.push({
+      label: i === 0 ? "Now" : new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric" }).format(weekStart),
+      value: Math.round(volume),
+    });
   }
+  return points;
+}
 
-  const max = Math.max(...buckets, 1);
-  return buckets.map((value) => Math.round((value / max) * 100));
+export function weekdaySessionCounts(sessions: StoredSession[]): SeriesPoint[] {
+  const labels = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+  const weekStart = startOfWeek(new Date());
+  return labels.map((label, index) => {
+    const day = new Date(weekStart);
+    day.setDate(weekStart.getDate() + index);
+    const count = sessions.filter((session) => isSameDay(new Date(sessionDate(session)), day)).length;
+    return { label, value: count };
+  });
+}
+
+export function currentStreak(sessions: StoredSession[]) {
+  const days = new Set(
+    sessions.map((session) => {
+      const date = new Date(sessionDate(session));
+      date.setHours(0, 0, 0, 0);
+      return date.getTime();
+    }),
+  );
+  const cursor = new Date();
+  cursor.setHours(0, 0, 0, 0);
+  if (!days.has(cursor.getTime())) {
+    cursor.setDate(cursor.getDate() - 1);
+    if (!days.has(cursor.getTime())) return 0;
+  }
+  let streak = 0;
+  while (days.has(cursor.getTime())) {
+    streak += 1;
+    cursor.setDate(cursor.getDate() - 1);
+  }
+  return streak;
 }
 
 export function defaultSets(count = 3, restSeconds = 90): SetLog[] {

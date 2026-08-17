@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type CSSProperties } from "react";
 import {
   anatomeGenerateImage,
   anatomeMuscleImageUrl,
@@ -62,6 +62,7 @@ export function AnatomeExerciseMuscles({
   const fallbackPrimaryKey = uniqueSlugs([target]).join(",");
   const fallbackSecondaryKey = uniqueSlugs(secondaryMuscles).join(",");
   const [view, setView] = useState<"front" | "back" | "dual">("dual");
+  const [isolated, setIsolated] = useState<string | null>(null);
   const [data, setData] = useState<AnatomeGenerateImageResponse | null>(null);
   const [status, setStatus] = useState<"loading" | "ready" | "error">("loading");
   const [primary, setPrimary] = useState(() => uniqueSlugs([target]));
@@ -88,7 +89,13 @@ export function AnatomeExerciseMuscles({
           if (resolvedSecondary.length) nextSecondary = uniqueSlugs(resolvedSecondary);
         }
 
-        const layers = layersFromNames(nextPrimary, nextSecondary);
+        const layers = isolated && (nextPrimary.includes(isolated) || nextSecondary.includes(isolated))
+          ? [{
+              color: nextPrimary.includes(isolated) ? PRIMARY_MUSCLE_COLOR : SECONDARY_MUSCLE_COLOR,
+              muscles: [isolated],
+              opacity: nextPrimary.includes(isolated) ? undefined : 0.72,
+            }]
+          : layersFromNames(nextPrimary, nextSecondary);
         if (!layers.length) {
           setStatus("error");
           return;
@@ -109,7 +116,15 @@ export function AnatomeExerciseMuscles({
     return () => {
       cancelled = true;
     };
-  }, [exerciseName, fallbackPrimary, fallbackSecondary, view]);
+  }, [exerciseName, fallbackPrimary, fallbackSecondary, view, isolated]);
+
+  useEffect(() => {
+    setIsolated(null);
+  }, [exerciseName]);
+
+  function toggleIsolated(slug: string) {
+    setIsolated((current) => (current === slug ? null : slug));
+  }
 
   return (
     <div className="exercise-muscle-map">
@@ -119,18 +134,39 @@ export function AnatomeExerciseMuscles({
         <button type="button" className={view === "back" ? "active" : ""} onClick={() => setView("back")}>Back</button>
       </div>
       <div className="anatome-svg exercise-muscle-svg">
-        {status === "loading" && <div className="anatome-loading">Loading muscle map…</div>}
-        {status === "error" && <div className="anatome-loading">Anatome could not map this movement.</div>}
-        {status === "ready" && data?.svg && (
-          <div className="anatome-svg-inner" dangerouslySetInnerHTML={{ __html: data.svg }} />
+        {status === "loading" && !data && <div className="anatome-loading">Loading muscle map…</div>}
+        {status === "error" && !data && <div className="anatome-loading">Anatome could not map this movement.</div>}
+        {data?.svg && (
+          <div
+            className={`anatome-svg-inner ${status === "loading" ? "is-updating" : ""}`}
+            dangerouslySetInnerHTML={{ __html: data.svg }}
+          />
         )}
       </div>
       <div className="muscle-legend">
         {primary.map((slug) => (
-          <span key={`p-${slug}`} className="legend-pill primary"><i /> {slugLabel(slug)}</span>
+          <button
+            key={`p-${slug}`}
+            type="button"
+            className={`legend-pill primary ${isolated === slug ? "is-active" : ""} ${isolated && isolated !== slug ? "is-dim" : ""}`}
+            style={{ "--chip": PRIMARY_MUSCLE_COLOR } as CSSProperties}
+            aria-pressed={isolated === slug}
+            onClick={() => toggleIsolated(slug)}
+          >
+            <i /> {slugLabel(slug)}
+          </button>
         ))}
         {secondary.filter((slug) => !primary.includes(slug)).map((slug) => (
-          <span key={`s-${slug}`} className="legend-pill secondary"><i /> {slugLabel(slug)}</span>
+          <button
+            key={`s-${slug}`}
+            type="button"
+            className={`legend-pill secondary ${isolated === slug ? "is-active" : ""} ${isolated && isolated !== slug ? "is-dim" : ""}`}
+            style={{ "--chip": SECONDARY_MUSCLE_COLOR } as CSSProperties}
+            aria-pressed={isolated === slug}
+            onClick={() => toggleIsolated(slug)}
+          >
+            <i /> {slugLabel(slug)}
+          </button>
         ))}
       </div>
       {data?.attribution && <small className="media-credit">{data.attribution}</small>}
