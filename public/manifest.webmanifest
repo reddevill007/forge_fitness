@@ -1,0 +1,18 @@
+{
+  "name": "Forge",
+  "short_name": "Forge",
+  "description": "Train with intention — workouts, programs, and logs, including offline.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#111410",
+  "theme_color": "#c9f43d",
+  "icons": [
+    {
+      "src": "/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    }
+  ]
+}

@@ -1,0 +1,336 @@
+import type { ActiveSessionProgress, StoredSession, StoredWorkout } from "@/src/lib/firebase/types";
+import type { ExerciseSession, PersonalRecord, SetLog, WorkoutExercise } from "@/src/types/fitness";
+
+function startOfWeek(date: Date) {
+  const d = new Date(date);
+  const day = d.getDay();
+  const diff = day === 0 ? -6 : 1 - day;
+  d.setDate(d.getDate() + diff);
+  d.setHours(0, 0, 0, 0);
+  return d;
+}
+
+function isSameDay(a: Date, b: Date) {
+  return a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
+}
+
+export function workingSet(set: SetLog) {
+  return set.completed || (set.weight > 0 && set.reps > 0);
+}
+
+export function sessionDate(session: StoredSession) {
+  return session.completedAt ?? session.startedAt;
+}
+
+export function sessionsThisWeek(sessions: StoredSession[]) {
+  const weekStart = startOfWeek(new Date());
+  return sessions.filter((session) => new Date(sessionDate(session)) >= weekStart);
+}
+
+export function sessionVolume(session: StoredSession) {
+  return session.exerciseSessions.reduce((total, exercise) => {
+    return (
+      total +
+      exercise.sets.reduce((setTotal, set) => {
+        if (!workingSet(set)) return setTotal;
+        return setTotal + set.weight * set.reps;
+      }, 0)
+    );
+  }, 0);
+}
+
+export function sessionSetCount(session: StoredSession) {
+  return session.exerciseSessions.reduce(
+    (total, exercise) => total + exercise.sets.filter((set) => workingSet(set)).length,
+    0,
+  );
+}
+
+export function hasLoggedWork(session: StoredSession) {
+  return sessionSetCount(session) > 0;
+}
+
+export function stampExerciseSessions(
+  exercises: WorkoutExercise[],
+  sessions: ExerciseSession[],
+): ExerciseSession[] {
+  return sessions.map((session) => {
+    const item = exercises.find((exercise) => exercise.id === session.workoutExerciseId);
+    if (!item) return session;
+    return {
+      ...session,
+      exerciseName: item.name,
+      exerciseId: item.exerciseId,
+    };
+  });
+}
+
+export function sessionFromProgress(progress: ActiveSessionProgress): StoredSession {
+  return {
+    id: `in-progress:${progress.workoutId}`,
+    workoutDayId: progress.workoutId,
+    workoutName: progress.workoutName,
+    focus: progress.focus,
+    startedAt: progress.startedAt,
+    durationSeconds: progress.durationSeconds,
+    exerciseSessions: progress.exerciseSessions,
+  };
+}
+
+export function loggedSessions(
+  sessions: StoredSession[],
+  activeSession: ActiveSessionProgress | null,
+): StoredSession[] {
+  const visible = sessions.filter((session) => session.completedAt || hasLoggedWork(session));
+  if (!activeSession) return visible;
+  const live = sessionFromProgress(activeSession);
+  if (!hasLoggedWork(live)) return visible;
+  const duplicate = visible.some((session) => (
+    session.workoutDayId === live.workoutDayId && session.startedAt === live.startedAt
+  ));
+  return duplicate ? visible : [live, ...visible];
+}
+
+export function exerciseLabel(
+  session: StoredSession,
+  exerciseSession: ExerciseSession,
+  workouts: StoredWorkout[],
+) {
+  if (exerciseSession.exerciseName) return exerciseSession.exerciseName;
+  const workout = workouts.find((item) => item.id === session.workoutDayId);
+  return workout?.exercises.find((item) => item.id === exerciseSession.workoutExerciseId)?.name ?? "Exercise";
+}
+
+export function catalogExerciseId(
+  session: StoredSession,
+  exerciseSession: ExerciseSession,
+  workouts: StoredWorkout[],
+) {
+  if (exerciseSession.exerciseId) return exerciseSession.exerciseId;
+  const workout = workouts.find((item) => item.id === session.workoutDayId);
+  return workout?.exercises.find((item) => item.id === exerciseSession.workoutExerciseId)?.exerciseId
+    ?? exerciseSession.workoutExerciseId;
+}
+
+export type ExerciseStat = {
+  exerciseId: string;
+  name: string;
+  sets: number;
+  volume: number;
+  bestWeight: number;
+  bestReps: number;
+};
+
+export function exerciseStats(sessions: StoredSession[], workouts: StoredWorkout[]): ExerciseStat[] {
+  const byId = new Map<string, ExerciseStat>();
+  for (const session of sessions) {
+    for (const exerciseSession of session.exerciseSessions) {
+      const name = exerciseLabel(session, exerciseSession, workouts);
+      const exerciseId = catalogExerciseId(session, exerciseSession, workouts);
+      const current = byId.get(exerciseId) ?? {
+        exerciseId,
+        name,
+        sets: 0,
+        volume: 0,
+        bestWeight: 0,
+        bestReps: 0,
+      };
+      for (const set of exerciseSession.sets) {
+        if (!workingSet(set)) continue;
+        current.sets += 1;
+        current.volume += set.weight * set.reps;
+        current.bestWeight = Math.max(current.bestWeight, set.weight);
+        current.bestReps = Math.max(current.bestReps, set.reps);
+      }
+      byId.set(exerciseId, current);
+    }
+  }
+  return [...byId.values()]
+    .filter((item) => item.sets > 0)
+    .sort((a, b) => b.volume - a.volume);
+}
+
+function recordNumeric(record: PersonalRecord) {
+  const value = Number.parseFloat(record.value);
+  return Number.isFinite(value) ? value : 0;
+}
+
+export function recordsFromTraining(sessions: StoredSession[], workouts: StoredWorkout[]): PersonalRecord[] {
+  const best = new Map<string, PersonalRecord & { weight: number; reps: number }>();
+  for (const session of sessions) {
+    for (const exerciseSession of session.exerciseSessions) {
+      const name = exerciseLabel(session, exerciseSession, workouts);
+      const exerciseId = catalogExerciseId(session, exerciseSession, workouts);
+      for (const set of exerciseSession.sets) {
+        if (!workingSet(set) || set.weight <= 0) continue;
+        const key = exerciseId;
+        const current = best.get(key);
+        const better = !current
+          || set.weight > current.weight
+          || (set.weight === current.weight && set.reps > current.reps);
+        if (!better) continue;
+        best.set(key, {
+          id: `derived:${exerciseId}:strength`,
+          exerciseId,
+          exercise: name,
+          type: "strength",
+          value: `${set.weight} kg × ${set.reps}`,
+          achievedAt: sessionDate(session),
+          weight: set.weight,
+          reps: set.reps,
+        });
+      }
+    }
+  }
+  return [...best.values()]
+    .map(({ weight: _weight, reps: _reps, ...record }) => record)
+    .sort((a, b) => (a.achievedAt < b.achievedAt ? 1 : -1));
+}
+
+export function mergeRecords(manual: PersonalRecord[], derived: PersonalRecord[]): PersonalRecord[] {
+  const byKey = new Map<string, PersonalRecord>();
+  const keyFor = (record: PersonalRecord) => `${record.type}:${record.exercise.trim().toLowerCase()}`;
+  for (const record of derived) byKey.set(keyFor(record), record);
+  for (const record of manual) {
+    const key = keyFor(record);
+    const existing = byKey.get(key);
+    if (!existing || recordNumeric(record) >= recordNumeric(existing)) {
+      byKey.set(key, record);
+    }
+  }
+  return [...byKey.values()].sort((a, b) => (a.achievedAt < b.achievedAt ? 1 : -1));
+}
+
+export function newRecordsToSave(existing: PersonalRecord[], derived: PersonalRecord[]): Omit<PersonalRecord, "id">[] {
+  const merged = mergeRecords(existing, []);
+  return derived
+    .filter((record) => {
+      const current = merged.find((item) => (
+        item.type === record.type && item.exercise.trim().toLowerCase() === record.exercise.trim().toLowerCase()
+      ));
+      return !current || recordNumeric(record) > recordNumeric(current);
+    })
+    .map(({ id: _id, ...record }) => record);
+}
+
+export function weeklyStats(sessions: StoredSession[]) {
+  const weekSessions = sessionsThisWeek(sessions);
+  const volume = weekSessions.reduce((total, session) => total + sessionVolume(session), 0);
+  const sets = weekSessions.reduce((total, session) => total + sessionSetCount(session), 0);
+  const trainingSeconds = weekSessions.reduce((total, session) => total + session.durationSeconds, 0);
+  return {
+    sessions: weekSessions.length,
+    volume,
+    sets,
+    trainingSeconds,
+  };
+}
+
+export function formatDuration(seconds: number) {
+  const hours = Math.floor(seconds / 3600);
+  const minutes = Math.floor((seconds % 3600) / 60);
+  if (hours > 0) return `${hours}h ${minutes}m`;
+  return `${minutes}m`;
+}
+
+export function formatVolume(kg: number) {
+  if (kg >= 1000) return `${(kg / 1000).toFixed(1)}k`;
+  return kg.toLocaleString(undefined, { maximumFractionDigits: 0 });
+}
+
+export function greetingName(displayName: string) {
+  const first = displayName.trim().split(/\s+/)[0];
+  return first || "there";
+}
+
+export function todayLabel() {
+  return new Intl.DateTimeFormat("en-US", {
+    weekday: "long",
+    month: "long",
+    day: "numeric",
+  }).format(new Date());
+}
+
+export function sessionsForMonth(sessions: StoredSession[], year: number, month: number) {
+  return sessions.filter((session) => {
+    const date = new Date(sessionDate(session));
+    return date.getFullYear() === year && date.getMonth() === month;
+  });
+}
+
+export function trainedDaysInMonth(sessions: StoredSession[], year: number, month: number) {
+  const days = new Set<number>();
+  sessionsForMonth(sessions, year, month).forEach((session) => {
+    days.add(new Date(sessionDate(session)).getDate());
+  });
+  return days;
+}
+
+export function exerciseWeightTrend(
+  sessions: StoredSession[],
+  workouts: StoredWorkout[],
+  exerciseId: string,
+  limit = 8,
+) {
+  const points: Array<{ at: string; weight: number }> = [];
+  for (const session of sessions) {
+    let best = 0;
+    for (const exerciseSession of session.exerciseSessions) {
+      const id = catalogExerciseId(session, exerciseSession, workouts);
+      if (id !== exerciseId) continue;
+      for (const set of exerciseSession.sets) {
+        if (!workingSet(set) || set.weight <= 0) continue;
+        best = Math.max(best, set.weight);
+      }
+    }
+    if (best > 0) points.push({ at: sessionDate(session), weight: best });
+  }
+  points.sort((a, b) => a.at.localeCompare(b.at));
+  const sliced = points.slice(-limit);
+  return {
+    values: sliced.map((point) => point.weight),
+    latest: sliced.at(-1)?.weight ?? 0,
+    count: points.length,
+  };
+}
+
+export function weeklyVolumeTrend(sessions: StoredSession[], weeks = 8) {
+  const now = new Date();
+  const buckets: number[] = [];
+
+  for (let i = weeks - 1; i >= 0; i--) {
+    const weekStart = startOfWeek(new Date(now));
+    weekStart.setDate(weekStart.getDate() - i * 7);
+    const weekEnd = new Date(weekStart);
+    weekEnd.setDate(weekEnd.getDate() + 7);
+
+    const volume = sessions
+      .filter((session) => {
+        const date = new Date(sessionDate(session));
+        return date >= weekStart && date < weekEnd;
+      })
+      .reduce((total, session) => total + sessionVolume(session), 0);
+
+    buckets.push(volume);
+  }
+
+  const max = Math.max(...buckets, 1);
+  return buckets.map((value) => Math.round((value / max) * 100));
+}
+
+export function defaultSets(count = 3, restSeconds = 90): SetLog[] {
+  return Array.from({ length: count }, (_, index) => ({
+    id: crypto.randomUUID(),
+    setNumber: index + 1,
+    kind: "working" as const,
+    weight: 0,
+    reps: 0,
+    rir: 2,
+    restSeconds,
+    completed: false,
+  }));
+}
+
+export function isToday(dateIso: string) {
+  return isSameDay(new Date(dateIso), new Date());
+}
