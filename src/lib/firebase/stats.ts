@@ -15,7 +15,21 @@ function isSameDay(a: Date, b: Date) {
 }
 
 export function workingSet(set: SetLog) {
-  return set.completed || (set.weight > 0 && set.reps > 0);
+  return set.completed || set.reps > 0;
+}
+
+export function isBodyweightLoad(weight: number) {
+  return !Number.isFinite(weight) || weight <= 0;
+}
+
+export function formatLoad(weight: number, reps?: number) {
+  const load = isBodyweightLoad(weight) ? "Bodyweight" : `${weight} kg`;
+  if (reps === undefined) return load;
+  return `${load} × ${reps}`;
+}
+
+export function formatLoggedValue(value: string) {
+  return value.replace(/^0+(?:\.0+)?\s*kg/i, "Bodyweight");
 }
 
 export function sessionDate(session: StoredSession) {
@@ -162,7 +176,7 @@ export function recordsFromTraining(sessions: StoredSession[], workouts: StoredW
       const name = exerciseLabel(session, exerciseSession, workouts);
       const exerciseId = catalogExerciseId(session, exerciseSession, workouts);
       for (const set of exerciseSession.sets) {
-        if (!workingSet(set) || set.weight <= 0) continue;
+        if (!workingSet(set)) continue;
         const key = exerciseId;
         const current = best.get(key);
         const better = !current
@@ -174,7 +188,7 @@ export function recordsFromTraining(sessions: StoredSession[], workouts: StoredW
           exerciseId,
           exercise: name,
           type: "strength",
-          value: `${set.weight} kg × ${set.reps}`,
+          value: formatLoad(set.weight, set.reps),
           achievedAt: sessionDate(session),
           weight: set.weight,
           reps: set.reps,
@@ -372,4 +386,26 @@ export function defaultSets(count = 3, restSeconds = 90): SetLog[] {
 
 export function isToday(dateIso: string) {
   return isSameDay(new Date(dateIso), new Date());
+}
+
+export function workoutCompletedToday(
+  sessions: StoredSession[],
+  workout: Pick<StoredWorkout, "id" | "exercises"> | null | undefined,
+) {
+  if (!workout) return false;
+  const planned = workout.exercises.map((item) => item.id);
+  return sessions.some((session) => {
+    if (session.workoutDayId !== workout.id) return false;
+    if (session.id.startsWith("in-progress:")) return false;
+    const when = session.completedAt ?? session.startedAt;
+    if (!isToday(when)) return false;
+    if (session.completedAt) return true;
+    if (!planned.length) return false;
+    const logged = new Set(
+      session.exerciseSessions
+        .filter((row) => row.sets.some((set) => workingSet(set)))
+        .map((row) => row.workoutExerciseId),
+    );
+    return planned.every((id) => logged.has(id));
+  });
 }

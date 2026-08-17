@@ -19,6 +19,7 @@ export type UserProfile = {
 
 export type StoredWorkout = WorkoutDay & {
   active?: boolean;
+  deletedAt?: string;
   createdAt: string;
   updatedAt: string;
 };
@@ -26,7 +27,12 @@ export type StoredWorkout = WorkoutDay & {
 export type StoredProgram = WorkoutProgram & {
   createdAt: string;
   updatedAt: string;
+  deletedAt?: string;
 };
+
+export function isTrashed(item: { deletedAt?: string }) {
+  return Boolean(item.deletedAt);
+}
 
 export type StoredSession = WorkoutSession & {
   workoutName: string;

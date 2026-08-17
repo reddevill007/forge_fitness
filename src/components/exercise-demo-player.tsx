@@ -4,6 +4,7 @@ import { Image as ImageIcon, Pause, Play, Volume2, VolumeX } from "lucide-react"
 import { useEffect, useRef, useState } from "react";
 import { ExerciseStill } from "@/src/components/exercise-still";
 import { isDirectVideoUrl, toYoutubeEmbedUrl } from "@/src/lib/video-embed";
+import { resolveDatasetMedia } from "@/src/lib/dataset-media";
 
 type Source = "gif" | "video";
 
@@ -41,7 +42,7 @@ export function ExerciseDemoPlayer({
 }) {
   const youtube = videoUrl ? toYoutubeEmbedUrl(videoUrl, true) : null;
   const fileVideo = videoUrl && isDirectVideoUrl(videoUrl) ? videoUrl : null;
-  const still = gifUrl || imageUrl;
+  const still = resolveDatasetMedia(gifUrl || undefined) || resolveDatasetMedia(imageUrl || undefined);
   const hasVideo = Boolean(youtube || fileVideo);
   const hasGif = Boolean(still);
   const iframeRef = useRef<HTMLIFrameElement | null>(null);

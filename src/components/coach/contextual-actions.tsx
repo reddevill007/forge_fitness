@@ -1,6 +1,6 @@
 "use client";
 
-import { Sparkles } from "lucide-react";
+import { CoachMark } from "@/src/components/coach/coach-mark";
 import { useCoach } from "@/src/lib/coach/context";
 
 export function ContextualAiActions({
@@ -19,7 +19,8 @@ export function ContextualAiActions({
           className="coach-chip"
           onClick={() => void coach.ask(action.prompt)}
         >
-          <Sparkles size={14} /> {action.label}
+          <span className="coach-chip-face"><CoachMark /></span>
+          {action.label}
         </button>
       ))}
     </div>

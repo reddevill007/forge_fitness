@@ -19,6 +19,10 @@ import {
   createWorkout,
   deleteProgram,
   deleteWorkout,
+  restoreProgram,
+  restoreWorkout,
+  trashProgram,
+  trashWorkout,
   clearActiveSession,
   saveActiveSession,
   saveSession,
@@ -43,6 +47,7 @@ import {
   type PendingSession,
 } from "@/src/lib/firebase/firestore";
 import type { ActiveSessionProgress, StoredProgram, StoredSession, StoredWorkout, UserProfile } from "@/src/lib/firebase/types";
+import { isTrashed } from "@/src/lib/firebase/types";
 import type { BodyMeasurement, CustomExerciseInput, Exercise, PersonalRecord, WorkoutDay, WorkoutProgram } from "@/src/types/fitness";
 import { uploadCustomExerciseMedia } from "@/src/lib/firebase/storage";
 import { newRecordsToSave, recordsFromTraining, stampExerciseSessions } from "@/src/lib/firebase/stats";
@@ -61,6 +66,8 @@ export type UserDataContextValue = {
   profile: UserProfile | null;
   workouts: StoredWorkout[];
   programs: StoredProgram[];
+  trashedWorkouts: StoredWorkout[];
+  trashedPrograms: StoredProgram[];
   sessions: StoredSession[];
   records: PersonalRecord[];
   measurements: BodyMeasurement[];
@@ -79,13 +86,18 @@ export type UserDataContextValue = {
   clearActiveSessionProgress: () => Promise<void>;
   saveWorkout: (input: Pick<WorkoutDay, "name" | "focus" | "duration" | "exercises">) => Promise<StoredWorkout>;
   patchWorkout: (workoutId: string, patch: Partial<WorkoutDay>) => Promise<void>;
-  removeWorkout: (workoutId: string) => Promise<void>;
+  trashWorkout: (workoutId: string) => Promise<void>;
+  restoreWorkout: (workoutId: string) => Promise<void>;
+  purgeWorkout: (workoutId: string) => Promise<void>;
   activateWorkout: (workoutId: string) => Promise<void>;
   duplicateWorkout: (workoutId: string) => Promise<StoredWorkout | null>;
   saveProgram: (input: Pick<WorkoutProgram, "name" | "schedule">) => Promise<StoredProgram>;
   patchProgram: (programId: string, patch: Partial<WorkoutProgram>) => Promise<void>;
-  removeProgram: (programId: string) => Promise<void>;
+  trashProgram: (programId: string) => Promise<void>;
+  restoreProgram: (programId: string) => Promise<void>;
+  purgeProgram: (programId: string) => Promise<void>;
   activateProgram: (programId: string) => Promise<void>;
+  emptyTrash: () => Promise<void>;
   completeSession: (pending: PendingSession) => Promise<string>;
   saveRecord: (record: Omit<PersonalRecord, "id">) => Promise<string>;
   saveMeasurement: (measurement: Omit<BodyMeasurement, "id">) => Promise<string>;
@@ -246,8 +258,18 @@ export function UserDataProvider({ children }: { children: ReactNode }) {
     };
   }, [runFlush, uid]);
 
-  const activeWorkout = useMemo(() => workouts.find((workout) => workout.active) ?? null, [workouts]);
-  const activeProgram = useMemo(() => programs.find((program) => program.active) ?? null, [programs]);
+  const liveWorkouts = useMemo(() => workouts.filter((workout) => !isTrashed(workout)), [workouts]);
+  const livePrograms = useMemo(() => programs.filter((program) => !isTrashed(program)), [programs]);
+  const trashedWorkouts = useMemo(
+    () => workouts.filter(isTrashed).sort((a, b) => (b.deletedAt ?? "").localeCompare(a.deletedAt ?? "")),
+    [workouts],
+  );
+  const trashedPrograms = useMemo(
+    () => programs.filter(isTrashed).sort((a, b) => (b.deletedAt ?? "").localeCompare(a.deletedAt ?? "")),
+    [programs],
+  );
+  const activeWorkout = useMemo(() => liveWorkouts.find((workout) => workout.active) ?? null, [liveWorkouts]);
+  const activeProgram = useMemo(() => livePrograms.find((program) => program.active) ?? null, [livePrograms]);
   const sessions = useMemo(() => {
     const remoteIds = new Set(remoteSessions.map((session) => session.id));
     return [...pendingSessions.filter((session) => !remoteIds.has(session.id)), ...remoteSessions]
@@ -256,9 +278,9 @@ export function UserDataProvider({ children }: { children: ReactNode }) {
   const todaysWorkout = useMemo(() => {
     const key = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"][new Date().getDay()];
     const slot = activeProgram?.schedule.find((item) => item.day === key);
-    if (slot?.workoutDayId) return workouts.find((workout) => workout.id === slot.workoutDayId) ?? activeWorkout;
+    if (slot?.workoutDayId) return liveWorkouts.find((workout) => workout.id === slot.workoutDayId) ?? activeWorkout;
     return activeWorkout;
-  }, [activeProgram, workouts, activeWorkout]);
+  }, [activeProgram, liveWorkouts, activeWorkout]);
 
   const updateUserProfile = useCallback(
     async (patch: Partial<UserProfile>) => {
@@ -272,15 +294,19 @@ export function UserDataProvider({ children }: { children: ReactNode }) {
     async (input: Pick<WorkoutDay, "name" | "focus" | "duration" | "exercises">) => {
       if (!uid) throw new Error("Not signed in");
       const workout = await createWorkout(uid, input);
-      if (workouts.length === 0) await setActiveWorkout(uid, workout.id);
+      if (liveWorkouts.length === 0) await setActiveWorkout(uid, workout.id);
       return workout;
     },
-    [uid, workouts.length],
+    [uid, liveWorkouts.length],
   );
 
   const persistWorkout = useCallback(
     async (workoutId: string, patch: Partial<WorkoutDay>) => {
       if (!uid) return;
+      const previous = workoutsRef.current.find((item) => item.id === workoutId);
+      if (patch.exercises && patch.exercises.length === 0 && (previous?.exercises.length ?? 0) > 1) {
+        return;
+      }
       const nextWorkouts = workoutsRef.current.map((item) =>
         item.id === workoutId ? { ...item, ...patch } : item,
       );
@@ -310,7 +336,28 @@ export function UserDataProvider({ children }: { children: ReactNode }) {
     [persistWorkout],
   );
 
-  const removeWorkout = useCallback(
+  const trashWorkoutItem = useCallback(
+    async (workoutId: string) => {
+      if (!uid) return;
+      const current = workoutsRef.current.find((item) => item.id === workoutId);
+      const remaining = workoutsRef.current.filter((item) => item.id !== workoutId && !isTrashed(item));
+      await trashWorkout(uid, workoutId);
+      if (current?.active && remaining[0]) await setActiveWorkout(uid, remaining[0].id);
+    },
+    [uid],
+  );
+
+  const restoreWorkoutItem = useCallback(
+    async (workoutId: string) => {
+      if (!uid) return;
+      const hasLive = workoutsRef.current.some((item) => item.id !== workoutId && !isTrashed(item));
+      await restoreWorkout(uid, workoutId);
+      if (!hasLive) await setActiveWorkout(uid, workoutId);
+    },
+    [uid],
+  );
+
+  const purgeWorkout = useCallback(
     async (workoutId: string) => {
       if (!uid) return;
       await deleteWorkout(uid, workoutId);
@@ -330,10 +377,10 @@ export function UserDataProvider({ children }: { children: ReactNode }) {
     async (input: Pick<WorkoutProgram, "name" | "schedule">) => {
       if (!uid) throw new Error("Not signed in");
       const program = await createProgram(uid, input);
-      if (programs.length === 0) await setActiveProgram(uid, program.id);
+      if (livePrograms.length === 0) await setActiveProgram(uid, program.id);
       return program;
     },
-    [uid, programs.length],
+    [uid, livePrograms.length],
   );
 
   const patchProgram = useCallback(
@@ -344,13 +391,42 @@ export function UserDataProvider({ children }: { children: ReactNode }) {
     [uid],
   );
 
-  const removeProgram = useCallback(
+  const trashProgramItem = useCallback(
+    async (programId: string) => {
+      if (!uid) return;
+      const current = programs.find((item) => item.id === programId);
+      const remaining = programs.filter((item) => item.id !== programId && !isTrashed(item));
+      await trashProgram(uid, programId);
+      if (current?.active && remaining[0]) await setActiveProgram(uid, remaining[0].id);
+    },
+    [uid, programs],
+  );
+
+  const restoreProgramItem = useCallback(
+    async (programId: string) => {
+      if (!uid) return;
+      const hasLive = programs.some((item) => item.id !== programId && !isTrashed(item));
+      await restoreProgram(uid, programId);
+      if (!hasLive) await setActiveProgram(uid, programId);
+    },
+    [uid, programs],
+  );
+
+  const purgeProgram = useCallback(
     async (programId: string) => {
       if (!uid) return;
       await deleteProgram(uid, programId);
     },
     [uid],
   );
+
+  const emptyTrash = useCallback(async () => {
+    if (!uid) return;
+    await Promise.all([
+      ...workoutsRef.current.filter(isTrashed).map((item) => deleteWorkout(uid, item.id)),
+      ...programs.filter(isTrashed).map((item) => deleteProgram(uid, item.id)),
+    ]);
+  }, [uid, programs]);
 
   const activateProgram = useCallback(
     async (programId: string) => {
@@ -524,8 +600,10 @@ export function UserDataProvider({ children }: { children: ReactNode }) {
   const value = useMemo(
     () => ({
       profile,
-      workouts,
-      programs,
+      workouts: liveWorkouts,
+      programs: livePrograms,
+      trashedWorkouts,
+      trashedPrograms,
       sessions,
       records,
       measurements,
@@ -544,13 +622,18 @@ export function UserDataProvider({ children }: { children: ReactNode }) {
       clearActiveSessionProgress,
       saveWorkout,
       patchWorkout,
-      removeWorkout,
+      trashWorkout: trashWorkoutItem,
+      restoreWorkout: restoreWorkoutItem,
+      purgeWorkout,
       activateWorkout,
       duplicateWorkout,
       saveProgram,
       patchProgram,
-      removeProgram,
+      trashProgram: trashProgramItem,
+      restoreProgram: restoreProgramItem,
+      purgeProgram,
       activateProgram,
+      emptyTrash,
       completeSession,
       saveRecord,
       saveMeasurement,
@@ -563,8 +646,10 @@ export function UserDataProvider({ children }: { children: ReactNode }) {
     }),
     [
       profile,
-      workouts,
-      programs,
+      liveWorkouts,
+      livePrograms,
+      trashedWorkouts,
+      trashedPrograms,
       sessions,
       records,
       measurements,
@@ -583,13 +668,18 @@ export function UserDataProvider({ children }: { children: ReactNode }) {
       clearActiveSessionProgress,
       saveWorkout,
       patchWorkout,
-      removeWorkout,
+      trashWorkoutItem,
+      restoreWorkoutItem,
+      purgeWorkout,
       activateWorkout,
       duplicateWorkout,
       saveProgram,
       patchProgram,
-      removeProgram,
+      trashProgramItem,
+      restoreProgramItem,
+      purgeProgram,
       activateProgram,
+      emptyTrash,
       completeSession,
       saveRecord,
       saveMeasurement,

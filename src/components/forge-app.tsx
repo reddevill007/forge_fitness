@@ -65,6 +65,9 @@ import {
   weekdaySessionCounts,
   currentStreak,
   workingSet,
+  workoutCompletedToday,
+  formatLoad,
+  formatLoggedValue,
 } from "@/src/lib/firebase/stats";
 import { getExerciseMedia } from "@/src/lib/firebase/firestore";
 import { useUserData } from "@/src/lib/firebase/user-data-context";
@@ -81,6 +84,8 @@ import { WorkoutDayPreview } from "@/src/components/workout-day-preview";
 import { ExercisePicker } from "@/src/components/exercise-picker";
 import { SaveToast } from "@/src/components/save-toast";
 import { youtubePoster } from "@/src/lib/video-embed";
+import { workoutStillUrl } from "@/src/lib/workout-exercise-media";
+import { useCatalogMedia } from "@/src/lib/use-catalog-media";
 import { useCoach, useCoachPage } from "@/src/lib/coach/context";
 import {
   DumbbellDoodle,
@@ -96,6 +101,7 @@ import { anatomeResolveExercise } from "@/src/lib/anatome";
 import { fetchExercise, fetchExercises } from "@/src/lib/exercises-client";
 import { useTheme } from "@/src/lib/theme";
 import { PageIntro, SectionTitle } from "@/src/components/ui";
+import { ConfirmDialog } from "@/src/components/confirm-dialog";
 import { MuscleFocusSelect } from "@/src/components/muscle-focus-select";
 import { FocusMuscleMap } from "@/src/components/focus-muscle-map";
 import { parseFocusMuscles } from "@/src/lib/focus-muscles";
@@ -238,7 +244,7 @@ function ExerciseProgressGraph({ values, latest }: { values: number[]; latest: n
       {values.length > 0 ? (
         <>
           <div className="exercise-progress-chart"><MiniChart values={values} /></div>
-          <span>{latest} kg</span>
+          <span>{formatLoad(latest)}</span>
         </>
       ) : (
         <em>Log a set to start this graph</em>
@@ -263,6 +269,7 @@ export function Dashboard({ onStart }: { onStart: () => void }) {
   const lastWeekVolume = volumeSeries.at(-2)?.value ?? 0;
   const volumeDelta = lastWeekVolume > 0 ? Math.round(((thisWeekVolume - lastWeekVolume) / lastWeekVolume) * 100) : null;
   const recent = training.slice(0, 4);
+  const todayDone = workoutCompletedToday(training, activeWorkout);
   useCoachPage({
     currentPage: "dashboard",
     currentWorkout: activeWorkout ? { id: activeWorkout.id, name: activeWorkout.name, focus: activeWorkout.focus } : null,
@@ -300,7 +307,9 @@ export function Dashboard({ onStart }: { onStart: () => void }) {
           <h1>Welcome back, {name}.</h1>
           <p>
             {activeWorkout
-              ? (activeWorkout.exercises.length > 0 ? `Ready for ${activeWorkout.name}.` : "Add exercises to your active workout.")
+              ? todayDone
+                ? `You finished ${activeWorkout.name} today.`
+                : (activeWorkout.exercises.length > 0 ? `Ready for ${activeWorkout.name}.` : "Add exercises to your active workout.")
               : "No session is scheduled today — your recent training is below."}
           </p>
           <ContextualAiActions
@@ -321,21 +330,30 @@ export function Dashboard({ onStart }: { onStart: () => void }) {
         <section className="dashboard-grid">
           <article className="workout-hero reveal delay-1">
             <div className="hero-copy">
-              <span className="paper-tag"><Zap size={14} fill="currentColor" /> Active workout</span>
+              <span className={`paper-tag ${todayDone ? "is-complete" : ""}`}>
+                {todayDone ? <Check size={14} /> : <Zap size={14} fill="currentColor" />}
+                {todayDone ? "Completed today" : "Active workout"}
+              </span>
               <h2>{firstName} {lastName !== firstName ? <em>{lastName}</em> : null}</h2>
               <p>{activeWorkout.focus || "Your session"}</p>
               <div className="hero-meta">
                 <span><Dumbbell size={17} /> {activeWorkout.exercises.length} exercises</span>
                 <span><Clock3 size={17} /> ~{activeWorkout.duration} min</span>
               </div>
-              <button
-                className="primary-button dark-button"
-                type="button"
-                onClick={onStart}
-                disabled={activeWorkout.exercises.length === 0}
-              >
-                <Play size={17} fill="currentColor" /> Start workout <ArrowRight size={17} />
-              </button>
+              {todayDone ? (
+                <Link className="primary-button dark-button is-complete" href="/history">
+                  <Check size={17} /> Completed
+                </Link>
+              ) : (
+                <button
+                  className="primary-button dark-button"
+                  type="button"
+                  onClick={onStart}
+                  disabled={activeWorkout.exercises.length === 0}
+                >
+                  <Play size={17} fill="currentColor" /> Start workout <ArrowRight size={17} />
+                </button>
+              )}
             </div>
             <DumbbellDoodle className="hero-dumbbell float-doodle" />
             <div className="hero-noise" />
@@ -405,7 +423,7 @@ export function Dashboard({ onStart }: { onStart: () => void }) {
                     <div className="dash-lift-chart">
                       <MiniChart values={trend.values} />
                     </div>
-                    <span>{lift.bestWeight} kg</span>
+                    <span>{formatLoad(lift.bestWeight)}</span>
                   </div>
                 );
               })}
@@ -431,8 +449,8 @@ export function Dashboard({ onStart }: { onStart: () => void }) {
             <div className="pr-burst"><Sparkles size={20} /></div>
             <span className="eyebrow">Recent PR</span>
             <h3>{latestRecord.exercise}</h3>
-            <strong className="pr-number">{latestRecord.value.split(" ")[0] ?? latestRecord.value}</strong>
-            <p>{latestRecord.value}</p>
+            <strong className="pr-number">{formatLoggedValue(latestRecord.value).startsWith("Bodyweight") ? "BW" : (latestRecord.value.split(" ")[0] ?? latestRecord.value)}</strong>
+            <p>{formatLoggedValue(latestRecord.value)}</p>
             <Link className="text-button" href="/records">All records <ChevronRight size={15} /></Link>
           </article>
         )}
@@ -455,7 +473,7 @@ export function Dashboard({ onStart }: { onStart: () => void }) {
 
       {activeWorkout && activeWorkout.exercises.length > 0 && (
         <section className="today-list reveal">
-          <SectionTitle eyebrow="On deck" title={activeWorkout.name} action={<Link className="outline-button" href="/workouts">Edit workout <PencilLine size={15} /></Link>} />
+          <SectionTitle eyebrow={todayDone ? "Completed" : "On deck"} title={activeWorkout.name} action={<Link className="outline-button" href="/workouts">Edit workout <PencilLine size={15} /></Link>} />
           <div className="exercise-rows">
             {activeWorkout.exercises.slice(0, 5).map((exercise, index) => (
               <div className="exercise-row" key={exercise.id}>
@@ -467,9 +485,15 @@ export function Dashboard({ onStart }: { onStart: () => void }) {
               </div>
             ))}
           </div>
-          <button className="primary-button workout-start-mobile" type="button" onClick={onStart}>
-            <Play size={17} fill="currentColor" /> Start {activeWorkout.name}
-          </button>
+          {todayDone ? (
+            <Link className="primary-button workout-start-mobile is-complete" href="/history">
+              <Check size={17} /> Completed
+            </Link>
+          ) : (
+            <button className="primary-button workout-start-mobile" type="button" onClick={onStart}>
+              <Play size={17} fill="currentColor" /> Start {activeWorkout.name}
+            </button>
+          )}
         </section>
       )}
     </div>
@@ -482,7 +506,7 @@ export function WorkoutsPage({ onStart }: { onStart: () => void }) {
     activeWorkout,
     saveWorkout,
     patchWorkout,
-    removeWorkout,
+    trashWorkout,
     activateWorkout,
     duplicateWorkout,
     profile,
@@ -491,6 +515,7 @@ export function WorkoutsPage({ onStart }: { onStart: () => void }) {
     videoUrlForExercise,
     sessions,
     activeSession,
+    trashedWorkouts,
   } = useUserData();
   const [creating, setCreating] = useState(false);
   const [pickerOpen, setPickerOpen] = useState(false);
@@ -503,7 +528,11 @@ export function WorkoutsPage({ onStart }: { onStart: () => void }) {
   const [selectedId, setSelectedId] = useState<string | null>(requestedId);
   const [dragIndex, setDragIndex] = useState<number | null>(null);
   const [saveStatus, setSaveStatus] = useState<"idle" | "saving" | "saved">("idle");
+  const [pendingTrash, setPendingTrash] = useState<{ id: string; name: string } | null>(null);
+  const [pendingRemove, setPendingRemove] = useState<{ id: string; name: string } | null>(null);
+  const [confirmBusy, setConfirmBusy] = useState(false);
   const selected = workouts.find((w) => w.id === (selectedId ?? requestedId ?? activeWorkout?.id)) ?? activeWorkout ?? workouts[0] ?? null;
+  const catalogMedia = useCatalogMedia(selected?.exercises ?? []);
   const training = loggedSessions(sessions, activeSession);
   const coach = useCoach();
   useCoachPage({
@@ -576,6 +605,9 @@ export function WorkoutsPage({ onStart }: { onStart: () => void }) {
         action={
           <div className="page-actions">
             <button className="outline-button" type="button" onClick={() => setCreating(true)}><Plus size={17} /> New workout</button>
+            <Link className="outline-button" href="/trash">
+              <Trash2 size={17} /> Trash{trashedWorkouts.length > 0 ? ` (${trashedWorkouts.length})` : ""}
+            </Link>
             <button
               className="outline-button"
               type="button"
@@ -641,7 +673,7 @@ export function WorkoutsPage({ onStart }: { onStart: () => void }) {
                   <button className="outline-button" type="button" onClick={() => activateWorkout(selected.id)}>Set active</button>
                 )}
                 <button className="outline-button" type="button" onClick={() => duplicateWorkout(selected.id)}><Copy size={15} /> Duplicate</button>
-                <button className="danger-text" type="button" onClick={async () => { await removeWorkout(selected.id); setSelectedId(null); }}><Trash2 size={16} /> Delete</button>
+                <button className="danger-text" type="button" onClick={() => setPendingTrash({ id: selected.id, name: selected.name })}><Trash2 size={16} /> Delete</button>
               </div>
             </div>
             <div className="workout-name-row">
@@ -669,7 +701,7 @@ export function WorkoutsPage({ onStart }: { onStart: () => void }) {
                 <div className="empty-inline"><p>No exercises yet. Add from the catalog or create a custom one.</p></div>
               )}
               {selected.exercises.map((exercise, index) => {
-                const thumb = exercise.gifUrl || exercise.imageUrl || youtubePoster(exercise.videoUrl || videoUrlForExercise(exercise.exerciseId, exercise.name) || "");
+                const thumb = workoutStillUrl(exercise, catalogMedia[exercise.exerciseId]) || youtubePoster(exercise.videoUrl || videoUrlForExercise(exercise.exerciseId, exercise.name) || "");
                 return (
                 <article
                   key={exercise.id}
@@ -725,7 +757,7 @@ export function WorkoutsPage({ onStart }: { onStart: () => void }) {
                     >
                       Alt {(exercise.alternatives?.length ?? 0)}/2
                     </button>
-                    <button type="button" className="icon-button" aria-label={`Remove ${exercise.name}`} onClick={() => removeExercise(exercise.id)}><Trash2 size={17} /></button>
+                    <button type="button" className="icon-button" aria-label={`Remove ${exercise.name}`} onClick={() => setPendingRemove({ id: exercise.id, name: exercise.name })}><Trash2 size={17} /></button>
                   </div>
                 </article>
                 );
@@ -804,6 +836,43 @@ export function WorkoutsPage({ onStart }: { onStart: () => void }) {
           exercises={selected.exercises}
           startIndex={previewIndex}
           onClose={() => setPreviewIndex(null)}
+        />
+      )}
+      {pendingTrash && (
+        <ConfirmDialog
+          title={`Move ${pendingTrash.name} to trash?`}
+          copy="You can restore it from Trash. Logged sessions stay in History."
+          confirmLabel="Move to trash"
+          busy={confirmBusy}
+          onCancel={() => setPendingTrash(null)}
+          onConfirm={async () => {
+            setConfirmBusy(true);
+            try {
+              await trashWorkout(pendingTrash.id);
+              setSelectedId(null);
+              setPendingTrash(null);
+            } finally {
+              setConfirmBusy(false);
+            }
+          }}
+        />
+      )}
+      {pendingRemove && (
+        <ConfirmDialog
+          title={`Remove ${pendingRemove.name}?`}
+          copy="This takes the exercise out of this workout. You can add it back from the catalog."
+          confirmLabel="Remove"
+          busy={confirmBusy}
+          onCancel={() => setPendingRemove(null)}
+          onConfirm={async () => {
+            setConfirmBusy(true);
+            try {
+              await removeExercise(pendingRemove.id);
+              setPendingRemove(null);
+            } finally {
+              setConfirmBusy(false);
+            }
+          }}
         />
       )}
       <SaveToast status={saveStatus} />
@@ -1154,6 +1223,7 @@ function ActiveWorkoutSession({
   const [paused, setPaused] = useState(false);
   const [catalogExercise, setCatalogExercise] = useState<Exercise | null>(null);
   const [savedVideoUrl, setSavedVideoUrl] = useState<string | null>(null);
+  const [anatomeVideoUrl, setAnatomeVideoUrl] = useState<string | null>(null);
   const [startedAt] = useState(() => initialProgress?.startedAt ?? new Date().toISOString());
   const [saving, setSaving] = useState(false);
   const [saveStatus, setSaveStatus] = useState<"idle" | "saving" | "saved" | "offline">("idle");
@@ -1208,10 +1278,23 @@ function ActiveWorkoutSession({
         if (!cancelled) setSavedVideoUrl(null);
       });
 
+    const knownVideo = exercise.videoUrl || videoUrlForExercise(exercise.exerciseId, exercise.name);
+    if (!knownVideo) {
+      anatomeResolveExercise(exercise.name)
+        .then((result) => {
+          if (!cancelled) setAnatomeVideoUrl(result.video_url ?? null);
+        })
+        .catch(() => {
+          if (!cancelled) setAnatomeVideoUrl(null);
+        });
+    } else {
+      setAnatomeVideoUrl(null);
+    }
+
     return () => {
       cancelled = true;
     };
-  }, [customExercises, exercise.exerciseId, exercise.name, user?.uid]);
+  }, [customExercises, exercise.exerciseId, exercise.name, exercise.videoUrl, user?.uid, videoUrlForExercise]);
 
   useEffect(() => {
     const timer = window.setInterval(() => setElapsed((value) => value + 1), 1000);
@@ -1391,7 +1474,7 @@ function ActiveWorkoutSession({
           <aside className="active-media-card">
             <ExerciseDemoPlayer
               title={exercise.name}
-              videoUrl={exercise.videoUrl || catalogExercise?.videoUrl || savedVideoUrl || videoUrlForExercise(exercise.exerciseId, exercise.name)}
+              videoUrl={exercise.videoUrl || catalogExercise?.videoUrl || savedVideoUrl || videoUrlForExercise(exercise.exerciseId, exercise.name) || anatomeVideoUrl}
               gifUrl={exercise.gifUrl || catalogExercise?.gif_url}
               imageUrl={exercise.imageUrl || catalogExercise?.image}
             />
@@ -1411,7 +1494,17 @@ function ActiveWorkoutSession({
               {sets.map((set) => (
                 <div className={`set-row ${set.completed ? "completed" : ""}`} key={set.id}>
                   <span><b>{set.setNumber}</b><small>{set.kind}</small></span>
-                  <label><span className="sr-only">Weight for set {set.setNumber}</span><input type="number" step="2.5" value={set.weight || ""} onChange={(event) => updateSet(set.id, "weight", Number(event.target.value))} /></label>
+                  <label>
+                    <span className="sr-only">Weight for set {set.setNumber}</span>
+                    <input
+                      type="number"
+                      step="2.5"
+                      min={0}
+                      placeholder="BW"
+                      value={set.weight > 0 ? String(set.weight) : ""}
+                      onChange={(event) => updateSet(set.id, "weight", Number(event.target.value) || 0)}
+                    />
+                  </label>
                   <label><span className="sr-only">Reps for set {set.setNumber}</span><input type="number" value={set.reps || ""} onChange={(event) => updateSet(set.id, "reps", Number(event.target.value))} /></label>
                   <label><span className="sr-only">RIR for set {set.setNumber}</span><input type="number" value={set.rir} onChange={(event) => updateSet(set.id, "rir", Number(event.target.value))} /></label>
                   <button className="set-check" onClick={() => toggleSet(set.id)} aria-label={`${set.completed ? "Unmark" : "Complete"} set ${set.setNumber}`}><Check size={21} /></button>
@@ -1729,7 +1822,7 @@ function HistorySessionCard({
                 return (
                   <b key={set.id} className={isBest ? "best" : ""}>
                     {isBest && <Trophy size={11} />}
-                    {set.weight} kg × {set.reps}
+                    {formatLoad(set.weight, set.reps)}
                   </b>
                 );
               })}
@@ -1967,7 +2060,7 @@ export function AnalyticsPage() {
                 <strong>{lift.name}</strong>
                 <span>{lift.sets} sets</span>
                 <span>{formatVolume(lift.volume)} kg</span>
-                <span>best {lift.bestWeight} kg × {lift.bestReps}</span>
+                <span>best {formatLoad(lift.bestWeight, lift.bestReps)}</span>
               </div>
             ))}
           </div>
@@ -2049,7 +2142,7 @@ export function RecordsPage() {
       />
       {latest && (
         <section className="records-hero reveal delay-1">
-          <div><Sparkles size={24} /><span>Latest record</span><h2>{latest.exercise}</h2><strong>{latest.value}</strong><p>{new Date(latest.achievedAt).toLocaleDateString()} · {latest.type} PR</p></div>
+          <div><Sparkles size={24} /><span>Latest record</span><h2>{latest.exercise}</h2><strong>{formatLoggedValue(latest.value)}</strong><p>{new Date(latest.achievedAt).toLocaleDateString()} · {latest.type} PR</p></div>
           <DumbbellDoodle />
         </section>
       )}
@@ -2059,7 +2152,7 @@ export function RecordsPage() {
             <span className="record-index">{String(index + 1).padStart(2, "0")}</span>
             <Trophy size={22} />
             <h3>{record.exercise}</h3>
-            <strong>{record.value}</strong>
+            <strong>{formatLoggedValue(record.value)}</strong>
             <small>{new Date(record.achievedAt).toLocaleDateString()} · {record.type} PR</small>
           </article>
         ))}
@@ -2140,9 +2233,11 @@ export function BodyPage() {
 }
 
 export function ProgramsPage() {
-  const { programs, workouts, saveProgram, removeProgram, patchProgram, activateProgram } = useUserData();
+  const { programs, workouts, saveProgram, trashProgram, patchProgram, activateProgram, trashedPrograms } = useUserData();
   const [creating, setCreating] = useState(false);
   const [name, setName] = useState("");
+  const [pendingTrash, setPendingTrash] = useState<{ id: string; name: string } | null>(null);
+  const [confirmBusy, setConfirmBusy] = useState(false);
   const coach = useCoach();
   const active = programs.find((item) => item.active) ?? programs[0];
   useCoachPage({
@@ -2193,6 +2288,9 @@ export function ProgramsPage() {
         action={
           <div className="page-actions">
             <button className="primary-button" type="button" onClick={() => setCreating(true)}><Plus size={17} /> Create program</button>
+            <Link className="outline-button" href="/trash">
+              <Trash2 size={17} /> Trash{trashedPrograms.length > 0 ? ` (${trashedPrograms.length})` : ""}
+            </Link>
             <button
               className="outline-button"
               type="button"
@@ -2237,30 +2335,32 @@ export function ProgramsPage() {
               {!program.active && (
                 <button className="outline-button" type="button" onClick={() => activateProgram(program.id)}>Set active</button>
               )}
-              <button className="danger-text" type="button" onClick={() => removeProgram(program.id)}><Trash2 size={16} /> Delete</button>
+              <button className="danger-text" type="button" onClick={() => setPendingTrash({ id: program.id, name: program.name })}><Trash2 size={16} /> Delete</button>
             </div>
           </div>
           <div className="program-week">
             {program.schedule.map((item) => {
               const assigned = workouts.find((workout) => workout.id === item.workoutDayId);
+              const missing = Boolean(item.workoutDayId && !assigned);
               const todayKey = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"][new Date().getDay()];
               const isToday = item.day === todayKey;
               return (
                 <article
-                  className={`${assigned ? "" : "rest-day"} ${isToday ? "today" : ""}`}
+                  className={`${assigned || missing ? "" : "rest-day"} ${isToday ? "today" : ""}`}
                   key={item.day}
                 >
                   <span>{item.day}{isToday ? " · today" : ""}</span>
-                  <i>{assigned ? <Dumbbell size={18} /> : <Moon size={18} />}</i>
-                  <strong>{assigned?.name ?? "Rest"}</strong>
-                  <small>{assigned ? `${assigned.exercises.length} exercises` : "Recovery"}</small>
+                  <i>{assigned || missing ? <Dumbbell size={18} /> : <Moon size={18} />}</i>
+                  <strong>{assigned?.name ?? (missing ? item.label : "Rest")}</strong>
+                  <small>{assigned ? `${assigned.exercises.length} exercises` : missing ? "In trash" : "Recovery"}</small>
                   <label className="program-day-select">
                     <span className="sr-only">{item.day} workout</span>
                     <select
-                      value={assigned?.id ?? ""}
+                      value={item.workoutDayId ?? ""}
                       onChange={(event) => assignDay(program.id, item.day, event.target.value)}
                     >
                       <option value="">Rest</option>
+                      {missing && <option value={item.workoutDayId}>{item.label} (in trash)</option>}
                       {workouts.map((workout) => (
                         <option key={workout.id} value={workout.id}>{workout.name}</option>
                       ))}
@@ -2281,6 +2381,24 @@ export function ProgramsPage() {
           )}
         </section>
       ))}
+      {pendingTrash && (
+        <ConfirmDialog
+          title={`Move ${pendingTrash.name} to trash?`}
+          copy="You can restore it from Trash. Assigned days will come back with it."
+          confirmLabel="Move to trash"
+          busy={confirmBusy}
+          onCancel={() => setPendingTrash(null)}
+          onConfirm={async () => {
+            setConfirmBusy(true);
+            try {
+              await trashProgram(pendingTrash.id);
+              setPendingTrash(null);
+            } finally {
+              setConfirmBusy(false);
+            }
+          }}
+        />
+      )}
     </div>
   );
 }
@@ -2288,7 +2406,7 @@ export function ProgramsPage() {
 export function SettingsPage() {
   const { dark, setDark } = useTheme();
   const { user, logout } = useAuth();
-  const { profile, updateUserProfile } = useUserData();
+  const { profile, updateUserProfile, trashedWorkouts, trashedPrograms } = useUserData();
   const coach = useCoach();
   const router = useRouter();
   const [displayName, setDisplayName] = useState("");
@@ -2358,6 +2476,13 @@ export function SettingsPage() {
           <div className="settings-section">
             <h2>Offline</h2>
             <p>Forge keeps your account, workouts, programs, and session logs on this device. Open the app once while online so pages, exercises, and GIFs can cache. First sign-in still needs a network connection.</p>
+          </div>
+          <div className="settings-section">
+            <h2>Trash</h2>
+            <p>Deleted workouts and programs stay here until you restore them or delete them forever.</p>
+            <Link className="outline-button" href="/trash">
+              <Trash2 size={17} /> Open trash{trashedWorkouts.length + trashedPrograms.length > 0 ? ` (${trashedWorkouts.length + trashedPrograms.length})` : ""}
+            </Link>
           </div>
           <div className="settings-section data-section">
             <h2>Account</h2>

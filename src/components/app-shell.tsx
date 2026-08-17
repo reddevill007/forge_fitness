@@ -2,10 +2,11 @@
 
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { Bell, Command, LogOut, Menu, Moon, MoreHorizontal, Search, Sparkles, Sun } from "lucide-react";
+import { Bell, Command, LogOut, Menu, Moon, MoreHorizontal, Search, Sun } from "lucide-react";
 import { useEffect, useState } from "react";
 import { ForgeMark, Scribble } from "@/src/components/doodles";
 import { CoachHost } from "@/src/components/coach/coach-host";
+import { CoachMark } from "@/src/components/coach/coach-mark";
 import { GlobalSearch } from "@/src/components/global-search";
 import { IconButton } from "@/src/components/ui";
 import { OfflineBanner } from "@/src/components/offline-banner";
@@ -76,9 +77,14 @@ function AppShellInner({ children }: { children: React.ReactNode }) {
             ))}
           </nav>
           <button className="sidebar-coach" type="button" onClick={() => coach?.openPanel()}>
-            <Sparkles size={20} />
-            <strong>Ask Coach</strong>
-            <p>{activeWorkout ? `Active: ${activeWorkout.name}` : "Your training history, on call."}</p>
+            <span className="coach-face">
+              <CoachMark />
+            </span>
+            <span className="sidebar-coach-copy">
+              <span className="eyebrow">Training coach</span>
+              <strong>Ask Atlas</strong>
+              <p>{activeWorkout ? `On ${activeWorkout.name}` : "Your history, on call."}</p>
+            </span>
             <Scribble />
           </button>
           <Link className="profile-chip" href="/settings" onClick={() => setSidebarOpen(false)}>
@@ -120,9 +126,9 @@ function AppShellInner({ children }: { children: React.ReactNode }) {
             <IconButton label={dark ? "Use light theme" : "Use dark theme"} onClick={() => setDark(!dark)}>
               {dark ? <Sun size={19} /> : <Moon size={19} />}
             </IconButton>
-            <IconButton label="Open Coach" onClick={() => coach?.openPanel()}>
-              <Sparkles size={19} />
-            </IconButton>
+            <button className="topbar-coach" type="button" aria-label="Open Coach" onClick={() => coach?.openPanel()}>
+              <CoachMark />
+            </button>
             <IconButton label="Notifications">
               <Bell size={19} />
               <i />

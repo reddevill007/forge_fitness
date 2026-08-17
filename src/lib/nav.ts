@@ -21,7 +21,8 @@ export type AppRoute =
   | "records"
   | "body"
   | "programs"
-  | "settings";
+  | "settings"
+  | "trash";
 
 export const navItems: Array<{
   id: AppRoute;
@@ -42,6 +43,7 @@ export const navItems: Array<{
 ];
 
 export function routeFromPathname(pathname: string): AppRoute {
+  if (pathname === "/trash" || pathname.startsWith("/trash/")) return "trash";
   const match = navItems.find((item) =>
     item.href === "/" ? pathname === "/" : pathname === item.href || pathname.startsWith(`${item.href}/`),
   );

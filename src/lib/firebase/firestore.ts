@@ -10,9 +10,11 @@ import {
   updateDoc,
   writeBatch,
   deleteDoc,
+  deleteField,
   type Unsubscribe,
 } from "firebase/firestore";
 import { getFirebaseDb } from "@/src/lib/firebase/client";
+import { resolveDatasetMedia } from "@/src/lib/dataset-media";
 import type {
   BodyMeasurement,
   Exercise,
@@ -147,6 +149,21 @@ export async function updateWorkout(uid: string, workoutId: string, patch: Parti
   await updateDoc(doc(workoutsRef(uid), workoutId), omitUndefined({ ...patch, updatedAt: nowIso() }));
 }
 
+export async function trashWorkout(uid: string, workoutId: string) {
+  await updateDoc(doc(workoutsRef(uid), workoutId), {
+    deletedAt: nowIso(),
+    active: false,
+    updatedAt: nowIso(),
+  });
+}
+
+export async function restoreWorkout(uid: string, workoutId: string) {
+  await updateDoc(doc(workoutsRef(uid), workoutId), {
+    deletedAt: deleteField(),
+    updatedAt: nowIso(),
+  });
+}
+
 export async function deleteWorkout(uid: string, workoutId: string) {
   await deleteDoc(doc(workoutsRef(uid), workoutId));
 }
@@ -184,6 +201,21 @@ export async function createProgram(uid: string, input: Pick<WorkoutProgram, "na
 
 export async function updateProgram(uid: string, programId: string, patch: Partial<WorkoutProgram>) {
   await updateDoc(doc(programsRef(uid), programId), { ...patch, updatedAt: nowIso() });
+}
+
+export async function trashProgram(uid: string, programId: string) {
+  await updateDoc(doc(programsRef(uid), programId), {
+    deletedAt: nowIso(),
+    active: false,
+    updatedAt: nowIso(),
+  });
+}
+
+export async function restoreProgram(uid: string, programId: string) {
+  await updateDoc(doc(programsRef(uid), programId), {
+    deletedAt: deleteField(),
+    updatedAt: nowIso(),
+  });
 }
 
 export async function deleteProgram(uid: string, programId: string) {
@@ -334,8 +366,8 @@ export function workoutExerciseFromCatalog(
   };
   const mediaId = exercise.media_id?.trim();
   const videoUrl = rememberedVideo?.trim() || exercise.videoUrl?.trim();
-  const gifUrl = exercise.gif_url?.trim();
-  const imageUrl = exercise.image?.trim();
+  const gifUrl = resolveDatasetMedia(exercise.gif_url);
+  const imageUrl = resolveDatasetMedia(exercise.image);
   if (mediaId) row.mediaId = mediaId;
   if (videoUrl) row.videoUrl = videoUrl;
   if (gifUrl) row.gifUrl = gifUrl;

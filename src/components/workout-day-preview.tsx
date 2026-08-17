@@ -5,7 +5,10 @@ import { useEffect, useState } from "react";
 import { AnatomeExerciseMuscleThumb } from "@/src/components/anatome-exercise-muscles";
 import { ExerciseDemoPlayer } from "@/src/components/exercise-demo-player";
 import { fetchExercise } from "@/src/lib/exercises-client";
+import { anatomeResolveExercise } from "@/src/lib/anatome";
+import { isBodyweightLoad } from "@/src/lib/firebase/stats";
 import { useUserData } from "@/src/lib/firebase/user-data-context";
+import { workoutStillUrl } from "@/src/lib/workout-exercise-media";
 import type { WorkoutExercise } from "@/src/types/fitness";
 
 export type DayPreviewExercise = WorkoutExercise & {
@@ -50,15 +53,33 @@ export function WorkoutDayPreview({
     const current = exercises[index];
     if (!current) return;
     setVideoUrl(current.videoUrl || videoUrlForExercise(current.exerciseId, current.name));
-    setGifUrl(current.gifUrl);
+    setGifUrl(workoutStillUrl(current) || current.gifUrl);
     setImageUrl(current.imageUrl);
-    if ((current.videoUrl && current.gifUrl) || !current.exerciseId) return;
+    if (!current.exerciseId) return;
     let cancelled = false;
-    fetchExercise(current.exerciseId).then((item) => {
-      if (cancelled || !item) return;
+    const knownVideo = current.videoUrl || videoUrlForExercise(current.exerciseId, current.name);
+    fetchExercise(current.exerciseId).then(async (item) => {
+      if (cancelled || !item) {
+        if (!knownVideo) {
+          try {
+            const resolved = await anatomeResolveExercise(current.name);
+            if (!cancelled) setVideoUrl((value) => value || resolved.video_url);
+          } catch {
+            return;
+          }
+        }
+        return;
+      }
       setVideoUrl((value) => value || item.videoUrl);
       setGifUrl((value) => value || item.gif_url);
       setImageUrl((value) => value || item.image);
+      if (knownVideo || item.videoUrl) return;
+      try {
+        const resolved = await anatomeResolveExercise(current.name);
+        if (!cancelled) setVideoUrl((value) => value || resolved.video_url);
+      } catch {
+        return;
+      }
     }).catch(() => undefined);
     return () => {
       cancelled = true;
@@ -123,7 +144,11 @@ export function WorkoutDayPreview({
                 ).map((set, setIndex) => (
                   <div className="set-row preview-set" key={set.id}>
                     <span><b>{setIndex + 1}</b><small>working</small></span>
-                    <strong>{set.weight || "—"}</strong>
+                    <strong className={exercise.loggedSets?.length && isBodyweightLoad(set.weight) ? "bw-load" : ""}>
+                      {exercise.loggedSets?.length
+                        ? (isBodyweightLoad(set.weight) ? "Bodyweight" : set.weight)
+                        : (set.weight || "—")}
+                    </strong>
                     <strong>{set.reps || "—"}</strong>
                     <strong>{set.rir ?? "—"}</strong>
                   </div>

@@ -6,6 +6,7 @@ import { Check, Trophy, X } from "lucide-react";
 import { AnatomeMuscleImpact } from "@/src/components/anatome-muscle-impact";
 import { MiniChart } from "@/src/components/doodles";
 import { useCoach } from "@/src/lib/coach/context";
+import { formatLoad, formatLoggedValue } from "@/src/lib/firebase/stats";
 import type { CoachAction, CoachBlock, PendingWrite, WorkoutPreviewExercise } from "@/src/lib/coach/types";
 
 function Chart({ points, color = "var(--lime)" }: { points: Array<{ label: string; value: number }>; color?: string }) {
@@ -111,7 +112,7 @@ export function CoachBlockView({ block }: { block: CoachBlock }) {
           <span className="coach-pr-burst"><Trophy size={18} /></span>
           <span className="eyebrow">Personal best</span>
           <h3>{block.exercise}</h3>
-          <strong>{block.weight && block.reps ? `${block.weight} kg × ${block.reps}` : block.value}</strong>
+          <strong>{block.reps ? formatLoad(block.weight ?? 0, block.reps) : formatLoggedValue(block.value ?? "")}</strong>
           {block.estimated1RM ? (
             <p>Estimated 1RM <b>{block.estimated1RM} kg</b></p>
           ) : null}

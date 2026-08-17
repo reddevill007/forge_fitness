@@ -1,9 +1,9 @@
 "use client";
 
-import { Maximize2, Minimize2, Send, Sparkles, X } from "lucide-react";
+import { Maximize2, Minimize2, Send, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { CoachBlockView } from "@/src/components/coach/coach-blocks";
-import { CoachMark, CoachThinkingDoodle } from "@/src/components/coach/coach-mark";
+import { CoachMark, CoachPortrait, CoachThinkingDoodle } from "@/src/components/coach/coach-mark";
 import { useCoach } from "@/src/lib/coach/context";
 
 const STARTERS = [
@@ -37,10 +37,12 @@ export function CoachPanel() {
       <aside className="coach-panel" role="dialog" aria-label="Coach">
         <header className="coach-header">
           <div className="coach-brand">
-            <CoachMark />
+            <span className="coach-face">
+              <CoachMark />
+            </span>
             <div>
-              <span className="eyebrow">Atlas</span>
-              <strong>Coach</strong>
+              <span className="eyebrow">Training coach</span>
+              <strong>Atlas</strong>
             </div>
           </div>
           <div className="coach-header-actions">
@@ -56,13 +58,16 @@ export function CoachPanel() {
         <div className="coach-thread" ref={scroller}>
           {coach.messages.length === 0 && (
             <div className="coach-empty">
-              <CoachMark />
-              <h2>Ask with your data in the room.</h2>
-              <p>PRs, muscle volume, this workout, the last eight weeks — Coach reads Forge, not generic advice.</p>
+              <div className="coach-empty-hero">
+                <CoachPortrait />
+              </div>
+              <p className="coach-empty-note">Clipboard out. Data in the room.</p>
+              <h2>What&apos;s the work?</h2>
+              <p>PRs, muscle volume, this session, the last eight weeks — Atlas reads Forge, not generic advice.</p>
               <div className="coach-starters">
                 {STARTERS.map((item) => (
                   <button key={item} type="button" onClick={() => void send(item)}>
-                    <Sparkles size={14} /> {item}
+                    {item}
                   </button>
                 ))}
               </div>
@@ -71,7 +76,11 @@ export function CoachPanel() {
 
           {coach.messages.map((message) => (
             <article key={message.id} className={`coach-bubble ${message.role}`}>
-              {message.role === "assistant" && <CoachMark />}
+              {message.role === "assistant" && (
+                <span className="coach-face is-sm">
+                  <CoachMark />
+                </span>
+              )}
               <div>
                 {message.text ? <p className="coach-text">{message.text}</p> : null}
                 {message.blocks.map((block, index) => (
@@ -83,12 +92,20 @@ export function CoachPanel() {
 
           {coach.thinking && (
             <div className="coach-thinking">
-              <CoachThinkingDoodle />
-              <span>{coach.thinking}</span>
+              <span className="coach-face is-sm">
+                <CoachMark />
+              </span>
+              <div>
+                <CoachThinkingDoodle />
+                <span>{coach.thinking}</span>
+              </div>
             </div>
           )}
           {coach.busy && !coach.thinking && (
             <div className="coach-thinking">
+              <span className="coach-face is-sm">
+                <CoachMark />
+              </span>
               <CoachThinkingDoodle />
             </div>
           )}
@@ -114,10 +131,10 @@ export function CoachPanel() {
               value={draft}
               rows={2}
               placeholder={coach.pageContext.currentExercise
-                ? `Ask about ${coach.pageContext.currentExercise.name}…`
+                ? `Ask Atlas about ${coach.pageContext.currentExercise.name}…`
                 : coach.pageContext.currentWorkout
-                  ? `Ask about ${coach.pageContext.currentWorkout.name}…`
-                  : "Ask Coach anything about your training…"}
+                  ? `Ask Atlas about ${coach.pageContext.currentWorkout.name}…`
+                  : "Ask Atlas anything about your training…"}
               onChange={(event) => setDraft(event.target.value)}
               onKeyDown={(event) => {
                 if (event.key === "Enter" && !event.shiftKey) {
@@ -127,8 +144,8 @@ export function CoachPanel() {
               }}
             />
           </label>
-          <button className="primary-button" type="submit" disabled={coach.busy || !draft.trim()}>
-            <Send size={16} /> Send
+          <button className="coach-send" type="submit" disabled={coach.busy || !draft.trim()} aria-label="Send">
+            <Send size={18} />
           </button>
         </form>
       </aside>
@@ -140,9 +157,14 @@ export function CoachFab() {
   const coach = useCoach();
   if (!coach || coach.open) return null;
   return (
-    <button className="coach-fab" type="button" onClick={coach.openPanel} aria-label="Open Coach">
-      <CoachMark />
-      <span>Coach</span>
+    <button className="coach-fab" type="button" onClick={coach.openPanel} aria-label="Ask Atlas, your coach">
+      <span className="coach-fab-face">
+        <CoachMark />
+      </span>
+      <span className="coach-fab-copy">
+        <small>On call</small>
+        <strong>Ask Atlas</strong>
+      </span>
     </button>
   );
 }
