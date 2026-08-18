@@ -25,12 +25,16 @@ async function fetchWithCache(url: string) {
 export async function fetchExercises(params: {
   q?: string;
   group?: string;
+  muscle?: string;
+  equipment?: string;
   page?: number;
   limit?: number;
 } = {}) {
   const search = new URLSearchParams();
   if (params.q) search.set("q", params.q);
   if (params.group && params.group !== "All") search.set("group", params.group.toLowerCase());
+  if (params.muscle) search.set("muscle", params.muscle);
+  if (params.equipment) search.set("equipment", params.equipment);
   search.set("page", String(params.page ?? 1));
   search.set("limit", String(params.limit ?? 24));
   const url = `/api/exercises?${search.toString()}`;

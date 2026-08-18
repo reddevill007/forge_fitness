@@ -21,6 +21,7 @@ import type {
   PersonalRecord,
   WorkoutDay,
   WorkoutExercise,
+  WorkoutExerciseAlternative,
   WorkoutProgram,
   WorkoutSession,
 } from "@/src/types/fitness";
@@ -373,6 +374,27 @@ export function workoutExerciseFromCatalog(
   if (gifUrl) row.gifUrl = gifUrl;
   if (imageUrl) row.imageUrl = imageUrl;
   return row;
+}
+
+export function workoutAlternativeFromCatalog(
+  exercise: Exercise,
+  rememberedVideo?: string,
+): WorkoutExerciseAlternative {
+  const alt: WorkoutExerciseAlternative = {
+    exerciseId: exercise.id,
+    name: exercise.name,
+    target: exercise.target,
+    secondary: exercise.secondary_muscles ?? [],
+  };
+  const mediaId = exercise.media_id?.trim();
+  const videoUrl = rememberedVideo?.trim() || exercise.videoUrl?.trim();
+  const gifUrl = resolveDatasetMedia(exercise.gif_url);
+  const imageUrl = resolveDatasetMedia(exercise.image);
+  if (mediaId) alt.mediaId = mediaId;
+  if (videoUrl) alt.videoUrl = videoUrl;
+  if (gifUrl) alt.gifUrl = gifUrl;
+  if (imageUrl) alt.imageUrl = imageUrl;
+  return alt;
 }
 
 export type PendingSession = {

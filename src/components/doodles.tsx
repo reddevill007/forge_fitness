@@ -78,25 +78,42 @@ export function MiniChart({ values, color = "var(--lime)" }: { values: number[];
   const min = Math.min(...values);
   const span = Math.max(values.length - 1, 1);
   const coords = values.map((value, index) => ({
-    x: 4 + (index / span) * 92,
-    y: 38 - ((value - min) / (max - min || 1)) * 28,
+    x: 6 + (index / span) * 88,
+    y: 36 - ((value - min) / (max - min || 1)) * 26,
   }));
-  const line = coords.map((point) => `${point.x},${point.y}`).join(" ");
-  const last = coords.at(-1) ?? { x: 96, y: 22 };
+  const last = coords.at(-1) ?? { x: 94, y: 22 };
+  let line = `M ${coords[0].x} ${coords[0].y}`;
+  if (coords.length === 2) {
+    line += ` L ${coords[1].x} ${coords[1].y}`;
+  } else if (coords.length > 2) {
+    for (let i = 0; i < coords.length - 1; i += 1) {
+      const p0 = coords[i - 1] ?? coords[i];
+      const p1 = coords[i];
+      const p2 = coords[i + 1];
+      const p3 = coords[i + 2] ?? p2;
+      line += ` C ${p1.x + (p2.x - p0.x) / 6} ${p1.y + (p2.y - p0.y) / 6} ${p2.x - (p3.x - p1.x) / 6} ${p2.y - (p3.y - p1.y) / 6} ${p2.x} ${p2.y}`;
+    }
+  }
   return (
     <svg className="mini-chart" viewBox="0 0 100 44" preserveAspectRatio="none" aria-hidden="true">
       <defs>
         <linearGradient id={`mini-${id}`} x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0%" stopColor={color} stopOpacity="0.42" />
+          <stop offset="0%" stopColor={color} stopOpacity="0.38" />
           <stop offset="100%" stopColor={color} stopOpacity="0" />
         </linearGradient>
       </defs>
-      <path d="M4 40H96" stroke="currentColor" opacity=".14" strokeDasharray="3 4" />
-      {coords.length > 1 && <polygon points={`4,40 ${line} ${last.x},40`} fill={`url(#mini-${id})`} />}
+      <path d="M6 40H94" stroke="currentColor" opacity=".1" strokeDasharray="3 4" />
       {coords.length > 1 && (
-        <polyline points={line} fill="none" stroke={color} strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" vectorEffect="non-scaling-stroke" />
+        <path d={`${line} L ${last.x} 40 L 6 40 Z`} fill={`url(#mini-${id})`} />
       )}
-      <circle cx={last.x} cy={last.y} r="2.4" fill={color} />
+      {coords.length > 1 && (
+        <path d={line} fill="none" stroke={color} strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round" vectorEffect="non-scaling-stroke" />
+      )}
+      {coords.map((point, index) => (
+        <circle key={`${point.x}-${index}`} cx={point.x} cy={point.y} r={point === last ? 2.8 : 1.6} fill={color} />
+      ))}
+      <circle cx={last.x} cy={last.y} r="4.4" fill="var(--paper-2)" />
+      <circle cx={last.x} cy={last.y} r="2.5" fill={color} />
     </svg>
   );
 }

@@ -22,6 +22,7 @@ export type AppRoute =
   | "body"
   | "programs"
   | "settings"
+  | "ai"
   | "trash";
 
 export const navItems: Array<{
@@ -34,6 +35,7 @@ export const navItems: Array<{
   { id: "workouts", href: "/workouts", label: "Workouts", icon: Dumbbell },
   { id: "exercises", href: "/exercises", label: "Exercises", icon: Search },
   { id: "muscles", href: "/muscles", label: "Muscle map", icon: Activity },
+  { id: "ai", href: "/ai", label: "AI coach", icon: BarChart3 },
   { id: "history", href: "/history", label: "History", icon: History },
   { id: "analytics", href: "/analytics", label: "Analytics", icon: BarChart3 },
   { id: "records", href: "/records", label: "Records", icon: Trophy },

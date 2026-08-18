@@ -32,6 +32,17 @@ export function formatLoggedValue(value: string) {
   return value.replace(/^0+(?:\.0+)?\s*kg/i, "Bodyweight");
 }
 
+export function isBodyweightRecordValue(value: string) {
+  return formatLoggedValue(value).startsWith("Bodyweight");
+}
+
+export function displayRecordValue(value: string) {
+  const formatted = formatLoggedValue(value);
+  return formatted.startsWith("Bodyweight")
+    ? formatted.replace(/^Bodyweight/, "BW")
+    : formatted;
+}
+
 export function sessionDate(session: StoredSession) {
   return session.completedAt ?? session.startedAt;
 }
@@ -308,6 +319,36 @@ export function exerciseWeightTrend(
   };
 }
 
+export function exerciseProgressTrend(
+  sessions: StoredSession[],
+  workouts: StoredWorkout[],
+  record: { exerciseId: string; exercise: string; value: string },
+  limit = 8,
+) {
+  const bodyweight = isBodyweightRecordValue(record.value);
+  const name = record.exercise.trim().toLowerCase();
+  const points: Array<{ at: string; value: number }> = [];
+  for (const session of sessions) {
+    let best = 0;
+    for (const exerciseSession of session.exerciseSessions) {
+      const id = catalogExerciseId(session, exerciseSession, workouts);
+      const label = exerciseLabel(session, exerciseSession, workouts).trim().toLowerCase();
+      if (id !== record.exerciseId && label !== name) continue;
+      for (const set of exerciseSession.sets) {
+        if (!workingSet(set)) continue;
+        if (bodyweight) {
+          if (isBodyweightLoad(set.weight)) best = Math.max(best, set.reps);
+        } else if (!isBodyweightLoad(set.weight)) {
+          best = Math.max(best, set.weight);
+        }
+      }
+    }
+    if (best > 0) points.push({ at: sessionDate(session), value: best });
+  }
+  points.sort((a, b) => a.at.localeCompare(b.at));
+  return points.slice(-limit).map((point) => point.value);
+}
+
 export function weeklyVolumeTrend(sessions: StoredSession[], weeks = 8) {
   const series = weeklyVolumeSeries(sessions, weeks);
   const max = Math.max(...series.map((point) => point.value), 1);
@@ -347,6 +388,117 @@ export function weekdaySessionCounts(sessions: StoredSession[]): SeriesPoint[] {
     const count = sessions.filter((session) => isSameDay(new Date(sessionDate(session)), day)).length;
     return { label, value: count };
   });
+}
+
+function plannedExercise(
+  session: StoredSession,
+  exerciseSession: ExerciseSession,
+  workouts: StoredWorkout[],
+) {
+  return workouts
+    .find((item) => item.id === session.workoutDayId)
+    ?.exercises.find((item) => item.id === exerciseSession.workoutExerciseId);
+}
+
+export function weeklySetsSeries(sessions: StoredSession[], weeks = 8): SeriesPoint[] {
+  const now = new Date();
+  const points: SeriesPoint[] = [];
+  for (let i = weeks - 1; i >= 0; i -= 1) {
+    const weekStart = startOfWeek(new Date(now));
+    weekStart.setDate(weekStart.getDate() - i * 7);
+    const weekEnd = new Date(weekStart);
+    weekEnd.setDate(weekEnd.getDate() + 7);
+    const sets = sessions
+      .filter((session) => {
+        const date = new Date(sessionDate(session));
+        return date >= weekStart && date < weekEnd;
+      })
+      .reduce((total, session) => total + sessionSetCount(session), 0);
+    points.push({
+      label: i === 0 ? "Now" : new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric" }).format(weekStart),
+      value: sets,
+    });
+  }
+  return points;
+}
+
+export function weeklyDurationSeries(sessions: StoredSession[], weeks = 8): SeriesPoint[] {
+  const now = new Date();
+  const points: SeriesPoint[] = [];
+  for (let i = weeks - 1; i >= 0; i -= 1) {
+    const weekStart = startOfWeek(new Date(now));
+    weekStart.setDate(weekStart.getDate() - i * 7);
+    const weekEnd = new Date(weekStart);
+    weekEnd.setDate(weekEnd.getDate() + 7);
+    const minutes = sessions
+      .filter((session) => {
+        const date = new Date(sessionDate(session));
+        return date >= weekStart && date < weekEnd;
+      })
+      .reduce((total, session) => total + session.durationSeconds, 0);
+    points.push({
+      label: i === 0 ? "Now" : new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric" }).format(weekStart),
+      value: Math.round(minutes / 60),
+    });
+  }
+  return points;
+}
+
+function topSlices(by: Map<string, number>, limit = 6): SeriesPoint[] {
+  const rows = [...by.entries()]
+    .filter(([, value]) => value > 0)
+    .sort((a, b) => b[1] - a[1]);
+  if (rows.length <= limit) {
+    return rows.map(([label, value]) => ({ label, value: Math.round(value) }));
+  }
+  const head = rows.slice(0, limit - 1);
+  const rest = rows.slice(limit - 1).reduce((total, [, value]) => total + value, 0);
+  return [
+    ...head.map(([label, value]) => ({ label, value: Math.round(value) })),
+    { label: "Other", value: Math.round(rest) },
+  ];
+}
+
+export function setsByMuscle(sessions: StoredSession[], workouts: StoredWorkout[]): SeriesPoint[] {
+  const by = new Map<string, number>();
+  for (const session of sessions) {
+    for (const exerciseSession of session.exerciseSessions) {
+      const planned = plannedExercise(session, exerciseSession, workouts);
+      const label = planned?.target?.trim() || "Other";
+      const sets = exerciseSession.sets.filter(workingSet).length;
+      if (!sets) continue;
+      by.set(label, (by.get(label) ?? 0) + sets);
+    }
+  }
+  return topSlices(by);
+}
+
+export function plannedSetsByMuscle(workout?: StoredWorkout | null): SeriesPoint[] {
+  if (!workout) return [];
+  const by = new Map<string, number>();
+  for (const exercise of workout.exercises) {
+    const label = exercise.target?.trim() || "Other";
+    by.set(label, (by.get(label) ?? 0) + 1);
+  }
+  return topSlices(by);
+}
+
+export function setsByLoadKind(sessions: StoredSession[]): SeriesPoint[] {
+  let weighted = 0;
+  let bodyweight = 0;
+  for (const session of sessions) {
+    for (const exerciseSession of session.exerciseSessions) {
+      for (const set of exerciseSession.sets) {
+        if (!workingSet(set)) continue;
+        if (isBodyweightLoad(set.weight)) bodyweight += 1;
+        else weighted += 1;
+      }
+    }
+  }
+  return [
+    { label: "Weighted", value: weighted },
+    { label: "Bodyweight", value: bodyweight },
+  ].filter((item) => item.value > 0);
 }
 
 export function currentStreak(sessions: StoredSession[]) {

@@ -48,6 +48,7 @@ import {
   exerciseLabel,
   exerciseStats,
   exerciseWeightTrend,
+  exerciseProgressTrend,
   formatDuration,
   formatVolume,
   greetingName,
@@ -62,14 +63,21 @@ import {
   trainedDaysInMonth,
   weeklyStats,
   weeklyVolumeSeries,
+  weeklySetsSeries,
+  weeklyDurationSeries,
   weekdaySessionCounts,
   currentStreak,
   workingSet,
   workoutCompletedToday,
+  displayRecordValue,
   formatLoad,
   formatLoggedValue,
+  isBodyweightRecordValue,
+  setsByMuscle,
+  setsByLoadKind,
+  plannedSetsByMuscle,
 } from "@/src/lib/firebase/stats";
-import { getExerciseMedia } from "@/src/lib/firebase/firestore";
+import { getExerciseMedia, workoutAlternativeFromCatalog } from "@/src/lib/firebase/firestore";
 import { useUserData } from "@/src/lib/firebase/user-data-context";
 import type { PendingSession } from "@/src/lib/firebase/firestore";
 import type { ActiveSessionProgress, StoredSession, StoredWorkout, UserProfile } from "@/src/lib/firebase/types";
@@ -95,7 +103,7 @@ import {
 } from "@/src/components/doodles";
 import { exerciseMediaProvider } from "@/src/lib/exercise-media";
 import { AnatomeMuscleImpact } from "@/src/components/anatome-muscle-impact";
-import { AreaChart, WeekActivity } from "@/src/components/training-charts";
+import { AreaChart, DonutChart, VolumeBars, WeekActivity } from "@/src/components/training-charts";
 import { AnatomeExerciseMuscleThumb, AnatomeExerciseMuscles } from "@/src/components/anatome-exercise-muscles";
 import { anatomeResolveExercise } from "@/src/lib/anatome";
 import { fetchExercise, fetchExercises } from "@/src/lib/exercises-client";
@@ -255,14 +263,27 @@ function ExerciseProgressGraph({ values, latest }: { values: number[]; latest: n
 
 export function Dashboard({ onStart }: { onStart: () => void }) {
   const { profile, todaysWorkout, sessions, records, workouts, activeSession } = useUserData();
+  const [mapView, setMapView] = useState<"front" | "back" | "dual">("front");
   const training = loggedSessions(sessions, activeSession);
   const week = weeklyStats(training);
   const volumeSeries = weeklyVolumeSeries(training, 8);
+  const setsSeries = weeklySetsSeries(training, 8);
+  const durationSeries = weeklyDurationSeries(training, 8);
   const weekdayCounts = weekdaySessionCounts(training);
   const streak = currentStreak(training);
   const lifts = exerciseStats(training, workouts).slice(0, 4);
+  const muscleSplit = setsByMuscle(training, workouts);
+  const plannedSplit = plannedSetsByMuscle(todaysWorkout);
+  const loadSplit = setsByLoadKind(training);
+  const todayIndex = (new Date().getDay() + 6) % 7;
+  const weekSoFar = weekdayCounts.slice(0, todayIndex + 1);
+  const consistencySplit = [
+    { label: "Trained", value: weekSoFar.filter((point) => point.value > 0).length },
+    { label: "Rest", value: weekSoFar.filter((point) => point.value === 0).length },
+  ].filter((item) => item.value > 0);
   const allRecords = mergeRecords(records, recordsFromTraining(training, workouts));
   const latestRecord = allRecords[0];
+  const latestRecordValue = latestRecord ? formatLoggedValue(latestRecord.value) : "";
   const name = greetingName(profile?.displayName ?? "there");
   const activeWorkout = todaysWorkout;
   const thisWeekVolume = volumeSeries.at(-1)?.value ?? 0;
@@ -434,12 +455,67 @@ export function Dashboard({ onStart }: { onStart: () => void }) {
         </article>
       </section>
 
+      <section className="dash-mix">
+        <article className="paper-panel reveal">
+          <SectionTitle eyebrow="Split" title={muscleSplit.length ? "Sets by muscle" : "Planned muscles"} />
+          {(muscleSplit.length ? muscleSplit : plannedSplit).length > 0 ? (
+            <DonutChart points={muscleSplit.length ? muscleSplit : plannedSplit} unit="sets" />
+          ) : (
+            <p className="chart-empty">Log sets to see how work is split across muscles.</p>
+          )}
+        </article>
+        <article className="paper-panel reveal delay-1">
+          <SectionTitle eyebrow="Style" title="Weighted vs bodyweight" />
+          {loadSplit.length > 0 ? (
+            <DonutChart points={loadSplit} unit="sets" />
+          ) : (
+            <p className="chart-empty">Weighted and bodyweight sets show up here.</p>
+          )}
+        </article>
+        <article className="paper-panel reveal delay-2">
+          <SectionTitle eyebrow="Density" title="Sets per week" />
+          {training.length > 0 ? (
+            <VolumeBars points={setsSeries} color="var(--orange)" />
+          ) : (
+            <p className="chart-empty">Weekly set counts land here after you train.</p>
+          )}
+        </article>
+      </section>
+
+      <section className="dash-charts dash-duration">
+        <article className="paper-panel reveal">
+          <SectionTitle eyebrow="Time" title="Minutes trained" />
+          {training.length > 0 ? (
+            <AreaChart points={durationSeries} color="var(--blue)" unit="min" />
+          ) : (
+            <p className="chart-empty">Session duration builds this curve.</p>
+          )}
+        </article>
+        <article className="paper-panel reveal delay-1">
+          <SectionTitle eyebrow="Rhythm" title="Week consistency" />
+          {consistencySplit.length > 0 ? (
+            <DonutChart points={consistencySplit} unit="days" />
+          ) : (
+            <p className="chart-empty">Train this week to fill the consistency ring.</p>
+          )}
+        </article>
+      </section>
+
       <section className="lower-grid">
         {exerciseNames.length > 0 && (
-          <article className="muscle-card reveal">
-            <SectionTitle eyebrow="Muscle map" title="Planned impact" action={<Link className="text-button" href="/muscles">Explore map <ArrowUpRight size={15} /></Link>} />
+          <article className="muscle-card dash-muscle-card reveal">
+            <SectionTitle
+              eyebrow="Muscle map"
+              title="Planned impact"
+              action={<Link className="text-button" href="/muscles">Explore map <ArrowUpRight size={15} /></Link>}
+            />
+            <div className="view-toggle compact-toggle dash-map-toggle">
+              <button type="button" className={mapView === "front" ? "active" : ""} onClick={() => setMapView("front")}>Front</button>
+              <button type="button" className={mapView === "back" ? "active" : ""} onClick={() => setMapView("back")}>Back</button>
+              <button type="button" className={mapView === "dual" ? "active" : ""} onClick={() => setMapView("dual")}>Both</button>
+            </div>
             <div className="muscle-content">
-              <AnatomeMuscleImpact exerciseNames={exerciseNames} view="front" gender="male" />
+              <AnatomeMuscleImpact exerciseNames={exerciseNames} view={mapView} gender="male" />
             </div>
           </article>
         )}
@@ -449,8 +525,12 @@ export function Dashboard({ onStart }: { onStart: () => void }) {
             <div className="pr-burst"><Sparkles size={20} /></div>
             <span className="eyebrow">Recent PR</span>
             <h3>{latestRecord.exercise}</h3>
-            <strong className="pr-number">{formatLoggedValue(latestRecord.value).startsWith("Bodyweight") ? "BW" : (latestRecord.value.split(" ")[0] ?? latestRecord.value)}</strong>
-            <p>{formatLoggedValue(latestRecord.value)}</p>
+            <strong className="pr-number">
+              {latestRecordValue.startsWith("Bodyweight")
+                ? latestRecordValue.replace(/^Bodyweight/, "BW")
+                : (latestRecordValue.split(" ")[0] ?? latestRecordValue)}
+            </strong>
+            <p>{latestRecordValue}</p>
             <Link className="text-button" href="/records">All records <ChevronRight size={15} /></Link>
           </article>
         )}
@@ -813,22 +893,44 @@ export function WorkoutsPage({ onStart }: { onStart: () => void }) {
         />
       )}
 
-      {altForId && selected && (
+      {altForId && selected && (() => {
+        const altExercise = selected.exercises.find((item) => item.id === altForId);
+        if (!altExercise) return null;
+        return (
         <ExercisePicker
           title="Add an alternative"
+          suggestFor={{
+            exerciseId: altExercise.exerciseId,
+            name: altExercise.name,
+            target: altExercise.target,
+            secondary: altExercise.secondary,
+          }}
+          excludeIds={[
+            altExercise.exerciseId,
+            ...(altExercise.alternatives ?? []).map((alt) => alt.exerciseId),
+          ]}
           onClose={() => setAltForId(null)}
           onSelect={async (exercise) => {
             const current = selected.exercises.find((item) => item.id === altForId);
             if (!current || (current.alternatives?.length ?? 0) >= 2) return;
+            const already = new Set([current.exerciseId, ...(current.alternatives ?? []).map((alt) => alt.exerciseId)]);
+            if (already.has(exercise.id)) return;
             await updateExercises(selected.exercises.map((item) => (
               item.id === altForId
-                ? { ...item, alternatives: [...(item.alternatives ?? []), { exerciseId: exercise.id, name: exercise.name }].slice(0, 2) }
+                ? {
+                    ...item,
+                    alternatives: [
+                      ...(item.alternatives ?? []),
+                      workoutAlternativeFromCatalog(exercise, videoUrlForExercise(exercise.id, exercise.name)),
+                    ].slice(0, 2),
+                  }
                 : item
             )));
             setAltForId(null);
           }}
         />
-      )}
+        );
+      })()}
       {previewIndex !== null && selected && selected.exercises.length > 0 && (
         <WorkoutDayPreview
           workoutName={selected.name}
@@ -836,6 +938,16 @@ export function WorkoutsPage({ onStart }: { onStart: () => void }) {
           exercises={selected.exercises}
           startIndex={previewIndex}
           onClose={() => setPreviewIndex(null)}
+          onSaveVideo={(exerciseId, url) => {
+            if (url) void saveVideoUrl(exerciseId, url);
+          }}
+          onUpdateExercise={async (workoutExerciseId, patch) => {
+            await markSaved(patchWorkout(selected.id, {
+              exercises: selected.exercises.map((item) => (
+                item.id === workoutExerciseId ? { ...item, ...patch } : item
+              )),
+            }));
+          }}
         />
       )}
       {pendingTrash && (
@@ -1224,6 +1336,20 @@ function ActiveWorkoutSession({
   const [catalogExercise, setCatalogExercise] = useState<Exercise | null>(null);
   const [savedVideoUrl, setSavedVideoUrl] = useState<string | null>(null);
   const [anatomeVideoUrl, setAnatomeVideoUrl] = useState<string | null>(null);
+  const [altSource, setAltSource] = useState<"primary" | number>("primary");
+  const SKIP_REASONS = useMemo(
+    () => [
+      { value: "tired", label: "Tired" },
+      { value: "burnout", label: "Burnout" },
+      { value: "not_in_mood", label: "Not in mood" },
+      { value: "time_constraint", label: "Time constraint" },
+      { value: "other", label: "Other" },
+    ],
+    [],
+  );
+  const [skipOpen, setSkipOpen] = useState(false);
+  const [skipReason, setSkipReason] = useState<string | null>(null);
+  const [skipBusy, setSkipBusy] = useState(false);
   const [startedAt] = useState(() => initialProgress?.startedAt ?? new Date().toISOString());
   const [saving, setSaving] = useState(false);
   const [saveStatus, setSaveStatus] = useState<"idle" | "saving" | "saved" | "offline">("idle");
@@ -1234,6 +1360,42 @@ function ActiveWorkoutSession({
   startedAtRef.current = startedAt;
 
   const exercise = workout.exercises[exerciseIndex];
+  const alternatives = exercise?.alternatives ?? [];
+  const viewed = useMemo(() => {
+    if (altSource === "primary" || typeof altSource !== "number") {
+      return {
+        exerciseId: exercise.exerciseId,
+        name: exercise.name,
+        target: exercise.target,
+        secondary: exercise.secondary,
+        videoUrl: exercise.videoUrl,
+        gifUrl: exercise.gifUrl,
+        imageUrl: exercise.imageUrl,
+      };
+    }
+    const alt = alternatives[altSource];
+    if (!alt) {
+      return {
+        exerciseId: exercise.exerciseId,
+        name: exercise.name,
+        target: exercise.target,
+        secondary: exercise.secondary,
+        videoUrl: exercise.videoUrl,
+        gifUrl: exercise.gifUrl,
+        imageUrl: exercise.imageUrl,
+      };
+    }
+    return {
+      exerciseId: alt.exerciseId,
+      name: alt.name,
+      target: alt.target || exercise.target,
+      secondary: alt.secondary ?? exercise.secondary,
+      videoUrl: alt.videoUrl,
+      gifUrl: alt.gifUrl,
+      imageUrl: alt.imageUrl,
+    };
+  }, [altSource, alternatives, exercise]);
+  const viewingAlt = altSource !== "primary";
   const liveTrend = exerciseWeightTrend(loggedSessions(sessions, activeSession), workouts, exercise.exerciseId);
   useCoachPage({
     currentPage: "active_workout",
@@ -1242,19 +1404,23 @@ function ActiveWorkoutSession({
   });
 
   useEffect(() => {
+    setAltSource("primary");
+  }, [exerciseIndex]);
+
+  useEffect(() => {
     let cancelled = false;
-    const custom = customExercises.find((item) => item.id === exercise.exerciseId);
+    const custom = customExercises.find((item) => item.id === viewed.exerciseId);
     if (custom) {
       setCatalogExercise(custom);
     } else {
-      fetchExercise(exercise.exerciseId)
+      fetchExercise(viewed.exerciseId)
         .then((item) => {
           if (cancelled) return;
           if (item) {
             setCatalogExercise(item);
             return;
           }
-          return fetchExercises({ q: exercise.name, limit: 1 }).then((data) => {
+          return fetchExercises({ q: viewed.name, limit: 1 }).then((data) => {
             if (!cancelled) setCatalogExercise(data.items[0] ?? null);
           });
         })
@@ -1270,7 +1436,7 @@ function ActiveWorkoutSession({
       };
     }
 
-    getExerciseMedia(user.uid, exercise.exerciseId)
+    getExerciseMedia(user.uid, viewed.exerciseId)
       .then((doc) => {
         if (!cancelled) setSavedVideoUrl(doc?.videoUrl ?? null);
       })
@@ -1278,9 +1444,9 @@ function ActiveWorkoutSession({
         if (!cancelled) setSavedVideoUrl(null);
       });
 
-    const knownVideo = exercise.videoUrl || videoUrlForExercise(exercise.exerciseId, exercise.name);
+    const knownVideo = viewed.videoUrl || videoUrlForExercise(viewed.exerciseId, viewed.name);
     if (!knownVideo) {
-      anatomeResolveExercise(exercise.name)
+      anatomeResolveExercise(viewed.name)
         .then((result) => {
           if (!cancelled) setAnatomeVideoUrl(result.video_url ?? null);
         })
@@ -1294,7 +1460,7 @@ function ActiveWorkoutSession({
     return () => {
       cancelled = true;
     };
-  }, [customExercises, exercise.exerciseId, exercise.name, exercise.videoUrl, user?.uid, videoUrlForExercise]);
+  }, [customExercises, user?.uid, videoUrlForExercise, viewed.exerciseId, viewed.name, viewed.videoUrl]);
 
   useEffect(() => {
     const timer = window.setInterval(() => setElapsed((value) => value + 1), 1000);
@@ -1416,6 +1582,7 @@ function ActiveWorkoutSession({
   };
 
   const nextExercise = () => {
+    persistDebounced.flush();
     const synced = withCurrentSets(exerciseSessions, exerciseIndex, sets);
     setExerciseSessions(synced);
     if (exerciseIndex >= workout.exercises.length - 1) {
@@ -1431,8 +1598,101 @@ function ActiveWorkoutSession({
         : defaultSets(3, workout.exercises[nextIndex].restSeconds || defaultRest),
     );
     setRest(null);
-    persistDebounced.cancel();
+    setAltSource("primary");
     void persistSnapshot(synced, nextIndex);
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  };
+
+  const skipExercise = async (reason: string) => {
+    setSkipBusy(true);
+    try {
+      persistDebounced.cancel();
+      const skipSets = sets.map((set) => ({
+        ...set,
+        completed: false,
+        weight: 0,
+        reps: 0,
+        rir: set.rir ?? 2,
+        notes: undefined,
+      }));
+      const nextSessions = exerciseSessions.map((session, idx) => (
+        idx === exerciseIndex
+          ? { ...session, sets: skipSets, notes: `Skipped: ${reason}` }
+          : session
+      ));
+
+      const nextIndex = exerciseIndex + 1;
+      if (exerciseIndex >= workout.exercises.length - 1) {
+        const pending: PendingSession = {
+          workout,
+          startedAt,
+          durationSeconds: elapsed,
+          exerciseSessions: stampExerciseSessions(workout.exercises, nextSessions),
+        };
+        setSaving(true);
+        try {
+          await completeSession(pending);
+          const tempSession = {
+            id: "temp",
+            workoutDayId: workout.id,
+            workoutName: workout.name,
+            focus: workout.focus,
+            startedAt,
+            completedAt: new Date().toISOString(),
+            durationSeconds: elapsed,
+            exerciseSessions: pending.exerciseSessions,
+          };
+          storeSessionSummary({
+            workoutName: workout.name,
+            focus: workout.focus,
+            durationSeconds: elapsed,
+            setCount: sessionSetCount(tempSession),
+            volume: sessionVolume(tempSession),
+            exerciseCount: workout.exercises.length,
+            exerciseNames: workout.exercises.map((item) => item.name),
+          });
+          onComplete();
+        } finally {
+          setSaving(false);
+        }
+        return;
+      }
+
+      const nextSession = nextSessions[nextIndex];
+      setExerciseSessions(nextSessions);
+      setExerciseIndex(nextIndex);
+      setSets(
+        nextSession?.sets?.length
+          ? nextSession.sets
+          : defaultSets(3, workout.exercises[nextIndex].restSeconds || defaultRest),
+      );
+      setRest(null);
+      setAltSource("primary");
+      await persistSnapshot(nextSessions, nextIndex);
+      window.scrollTo({ top: 0, behavior: "smooth" });
+    } finally {
+      setSkipOpen(false);
+      setSkipReason(null);
+      setSkipBusy(false);
+    }
+  };
+
+  const previousExercise = () => {
+    if (exerciseIndex <= 0) return;
+    persistDebounced.flush();
+    const synced = withCurrentSets(exerciseSessions, exerciseIndex, sets);
+    setExerciseSessions(synced);
+    const prevIndex = exerciseIndex - 1;
+    const prevSession = synced[prevIndex];
+    setExerciseIndex(prevIndex);
+    setSets(
+      prevSession?.sets?.length
+        ? prevSession.sets
+        : defaultSets(3, workout.exercises[prevIndex].restSeconds || defaultRest),
+    );
+    setRest(null);
+    setAltSource("primary");
+    void persistSnapshot(synced, prevIndex);
     window.scrollTo({ top: 0, behavior: "smooth" });
   };
 
@@ -1459,9 +1719,16 @@ function ActiveWorkoutSession({
       <main className="active-content">
         <section className="active-exercise-head">
           <div>
-            <span className="eyebrow">Exercise {String(exerciseIndex + 1).padStart(2, "0")}</span>
-            <h1>{exercise.name}</h1>
-            <p>{exercise.prescription} · {exercise.target}</p>
+            <span className="eyebrow">
+              Exercise {String(exerciseIndex + 1).padStart(2, "0")}
+              {viewingAlt ? " · alternative" : ""}
+            </span>
+            <h1>{viewingAlt ? viewed.name : exercise.name}</h1>
+            <p>
+              {viewingAlt
+                ? `Stand-in for ${exercise.name} · ${viewed.target}`
+                : `${exercise.prescription} · ${exercise.target}`}
+            </p>
             <ContextualAiActions
               actions={[
                 { label: "Rate this workout", prompt: `Rate ${workout.name} using the actual exercise list.` },
@@ -1470,21 +1737,48 @@ function ActiveWorkoutSession({
             />
           </div>
         </section>
+        <div className="preview-alts active-alts" role="tablist" aria-label="Exercise and alternatives">
+          <button
+            type="button"
+            role="tab"
+            className={altSource === "primary" ? "active" : ""}
+            aria-selected={altSource === "primary"}
+            onClick={() => setAltSource("primary")}
+          >
+            Main
+          </button>
+          {alternatives.map((alt, altIndex) => (
+            <button
+              key={`${alt.exerciseId}-${altIndex}`}
+              type="button"
+              role="tab"
+              className={altSource === altIndex ? "active" : ""}
+              aria-selected={altSource === altIndex}
+              onClick={() => setAltSource(altIndex)}
+            >
+              Alt {altIndex + 1}
+              <small>{alt.name}</small>
+            </button>
+          ))}
+          {alternatives.length === 0 && (
+            <span className="preview-no-alt">No alt</span>
+          )}
+        </div>
         <div className="active-grid">
           <aside className="active-media-card">
             <ExerciseDemoPlayer
-              title={exercise.name}
-              videoUrl={exercise.videoUrl || catalogExercise?.videoUrl || savedVideoUrl || videoUrlForExercise(exercise.exerciseId, exercise.name) || anatomeVideoUrl}
-              gifUrl={exercise.gifUrl || catalogExercise?.gif_url}
-              imageUrl={exercise.imageUrl || catalogExercise?.image}
+              title={viewed.name}
+              videoUrl={viewed.videoUrl || catalogExercise?.videoUrl || savedVideoUrl || videoUrlForExercise(viewed.exerciseId, viewed.name) || anatomeVideoUrl}
+              gifUrl={workoutStillUrl(viewed) || viewed.gifUrl || catalogExercise?.gif_url}
+              imageUrl={viewed.imageUrl || catalogExercise?.image}
             />
-            <div className="target-row"><span><i className="primary-muscle" /> Primary<strong>{exercise.target}</strong></span><span><i className="secondary-muscle" /> Secondary<strong>{exercise.secondary[0] ?? "—"}</strong></span></div>
+            <div className="target-row"><span><i className="primary-muscle" /> Primary<strong>{viewed.target}</strong></span><span><i className="secondary-muscle" /> Secondary<strong>{viewed.secondary[0] ?? "—"}</strong></span></div>
             <AnatomeExerciseMuscleThumb
-              exerciseName={exercise.name}
-              target={exercise.target}
-              secondaryMuscles={exercise.secondary}
+              exerciseName={viewed.name}
+              target={viewed.target}
+              secondaryMuscles={viewed.secondary}
             />
-            <Link className="text-button" href={`/exercises/${exercise.exerciseId}`}><Video size={16} /> Exercise details</Link>
+            <Link className="text-button" href={`/exercises/${viewed.exerciseId}`}><Video size={16} /> Exercise details</Link>
             <small className="media-credit">{catalogExercise?.attribution ?? "Add a YouTube URL on this exercise to loop the exact demo."}</small>
           </aside>
           <section className="set-logger">
@@ -1514,10 +1808,28 @@ function ActiveWorkoutSession({
             <button className="add-set" onClick={addSet}><Plus size={18} /> Add set</button>
             <div className="workout-tools">
               <button onClick={() => setRest(exercise.restSeconds || defaultRest)}><Timer size={18} /> Rest timer</button>
+              <button
+                type="button"
+                className="outline-button"
+                onClick={() => setSkipOpen(true)}
+                disabled={saving || skipBusy}
+              >
+                <SkipForward size={18} /> Skip exercise
+              </button>
             </div>
-            <button className="primary-button next-exercise" onClick={nextExercise} disabled={saving}>
-              {exerciseIndex === workout.exercises.length - 1 ? (saving ? "Saving…" : "Finish workout") : "Next exercise"} <ArrowRight size={18} />
-            </button>
+            <div className="active-exercise-nav">
+              <button
+                type="button"
+                className="outline-button"
+                onClick={previousExercise}
+                disabled={exerciseIndex === 0 || saving}
+              >
+                <ArrowLeft size={18} /> Previous
+              </button>
+              <button className="primary-button next-exercise" type="button" onClick={nextExercise} disabled={saving}>
+                {exerciseIndex === workout.exercises.length - 1 ? (saving ? "Saving…" : "Finish workout") : "Next exercise"} <ArrowRight size={18} />
+              </button>
+            </div>
           </section>
         </div>
       </main>
@@ -1534,6 +1846,52 @@ function ActiveWorkoutSession({
               <button onClick={() => setPaused(!paused)}>{paused ? <Play size={18} /> : <Pause size={18} />} {paused ? "Resume" : "Pause"}</button>
               <button onClick={() => setRest((value) => (value ?? 0) + 30)}><Plus size={18} /> 30 sec</button>
               <button onClick={() => setRest(null)}><SkipForward size={18} /> Skip</button>
+            </div>
+          </div>
+        </div>
+      )}
+      {skipOpen && (
+        <div
+          className="modal-layer"
+          role="presentation"
+          onClick={() => {
+            if (!skipBusy) setSkipOpen(false);
+          }}
+        >
+          <div
+            className="confirm-card skip-card"
+            role="dialog"
+            aria-modal="true"
+            aria-label="Skip exercise"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <h3>Skip this exercise?</h3>
+            <p>Pick a reason so your training pattern stays honest.</p>
+            <div className="skip-reasons">
+              {SKIP_REASONS.map((r) => (
+                <button
+                  key={r.value}
+                  type="button"
+                  className={`reason-chip${skipReason === r.value ? " active" : ""}`}
+                  onClick={() => setSkipReason(r.value)}
+                  disabled={skipBusy}
+                >
+                  {r.label}
+                </button>
+              ))}
+            </div>
+            <div className="form-actions">
+              <button type="button" className="outline-button" disabled={skipBusy} onClick={() => setSkipOpen(false)}>
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="danger-button"
+                disabled={!skipReason || skipBusy}
+                onClick={() => void skipExercise(skipReason ?? "other")}
+              >
+                {skipBusy ? "Working…" : "Skip"}
+              </button>
             </div>
           </div>
         </div>
@@ -1706,7 +2064,7 @@ function HistorySessionCard({
   session: StoredSession;
   workouts: StoredWorkout[];
 }) {
-  const { videoUrlForExercise } = useUserData();
+  const { videoUrlForExercise, saveVideoUrl, patchWorkout } = useUserData();
   const inProgress = session.id.startsWith("in-progress:");
   const workout = workouts.find((item) => item.id === session.workoutDayId);
   const [previewIndex, setPreviewIndex] = useState<number | null>(null);
@@ -1839,6 +2197,16 @@ function HistorySessionCard({
         exercises={previewExercises}
         startIndex={previewIndex}
         onClose={() => setPreviewIndex(null)}
+        onSaveVideo={(exerciseId, url) => {
+          if (url) void saveVideoUrl(exerciseId, url);
+        }}
+        onUpdateExercise={workout ? async (workoutExerciseId, patch) => {
+          await patchWorkout(workout.id, {
+            exercises: workout.exercises.map((item) => (
+              item.id === workoutExerciseId ? { ...item, ...patch } : item
+            )),
+          });
+        } : undefined}
       />
     )}
     </>
@@ -2070,38 +2438,224 @@ export function AnalyticsPage() {
   );
 }
 
+type RecordKind = "all" | "weighted" | "bodyweight";
+
+function recordsByKind(records: ReturnType<typeof mergeRecords>, kind: RecordKind) {
+  if (kind === "all") return records;
+  return records.filter((record) => (
+    kind === "bodyweight"
+      ? isBodyweightRecordValue(record.value)
+      : !isBodyweightRecordValue(record.value)
+  ));
+}
+
 export function RecordsPage() {
-  const { records, saveRecord, sessions, workouts, activeSession } = useUserData();
+  const { records, saveRecord, sessions, workouts, activeSession, customExercises, videoUrlForExercise } = useUserData();
   const [exercise, setExercise] = useState("");
   const [value, setValue] = useState("");
+  const [filter, setFilter] = useState("");
+  const [recordKind, setRecordKind] = useState<RecordKind>("all");
+  const [logging, setLogging] = useState(false);
+  const [saving, setSaving] = useState(false);
   const training = loggedSessions(sessions, activeSession);
   const allRecords = mergeRecords(records, recordsFromTraining(training, workouts));
-  const latest = allRecords[0];
+  const kindCounts = {
+    all: allRecords.length,
+    weighted: recordsByKind(allRecords, "weighted").length,
+    bodyweight: recordsByKind(allRecords, "bodyweight").length,
+  };
+  const byKind = recordsByKind(allRecords, recordKind);
+  const filtered = filter.trim()
+    ? byKind.filter((r) => r.exercise.toLowerCase().includes(filter.trim().toLowerCase()))
+    : byKind;
+  const latest = filtered[0];
+  const mediaSources = useMemo(() => {
+    const items: WorkoutExercise[] = [];
+    for (const workout of workouts) {
+      for (const item of workout.exercises) {
+        items.push(item);
+        for (const alt of item.alternatives ?? []) {
+          items.push({
+            id: alt.exerciseId,
+            exerciseId: alt.exerciseId,
+            name: alt.name,
+            target: alt.target ?? "",
+            secondary: alt.secondary ?? [],
+            prescription: "",
+            restSeconds: 0,
+            gifUrl: alt.gifUrl,
+            imageUrl: alt.imageUrl,
+            videoUrl: alt.videoUrl,
+          });
+        }
+      }
+    }
+    for (const item of customExercises) {
+      items.push({
+        id: item.id,
+        exerciseId: item.id,
+        name: item.name,
+        target: item.target,
+        secondary: item.secondary_muscles,
+        prescription: "",
+        restSeconds: 0,
+        gifUrl: item.gif_url,
+        imageUrl: item.image,
+        videoUrl: item.videoUrl,
+      });
+    }
+    return items;
+  }, [customExercises, workouts]);
+  const recordExercises = useMemo(() => (
+    allRecords.map((record) => {
+      const match = mediaSources.find((item) => (
+        item.exerciseId === record.exerciseId
+        || item.name.trim().toLowerCase() === record.exercise.trim().toLowerCase()
+      ));
+      return {
+        id: record.id,
+        exerciseId: match?.exerciseId || record.exerciseId,
+        name: record.exercise,
+        target: "",
+        secondary: [] as string[],
+        prescription: "",
+        restSeconds: 0,
+        gifUrl: match?.gifUrl,
+        imageUrl: match?.imageUrl,
+        videoUrl: match?.videoUrl,
+      };
+    })
+  ), [allRecords, mediaSources]);
+  const catalogMedia = useCatalogMedia(recordExercises);
   useCoachPage({ currentPage: "records" });
 
-  const form = (
-    <form
-      className="paper-panel workout-create-form reveal delay-1"
-      onSubmit={async (event) => {
-        event.preventDefault();
-        if (!exercise.trim() || !value.trim()) return;
-        await saveRecord({
-          exerciseId: crypto.randomUUID(),
-          exercise: exercise.trim(),
-          type: "strength",
-          value: value.trim(),
-          achievedAt: new Date().toISOString(),
-        });
+  function closeLogForm() {
+    if (saving) return;
+    setLogging(false);
+    setExercise("");
+    setValue("");
+  }
+
+  useEffect(() => {
+    if (!logging) return;
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape" && !saving) {
+        setLogging(false);
         setExercise("");
         setValue("");
-      }}
-    >
-      <h3>Log a record</h3>
-      <label>Exercise<input value={exercise} onChange={(e) => setExercise(e.target.value)} placeholder="Bench press" required /></label>
-      <label>Result<input value={value} onChange={(e) => setValue(e.target.value)} placeholder="100 kg × 5" required /></label>
-      <button className="primary-button" type="submit">Save record</button>
-    </form>
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [logging, saving]);
+
+  const coachActions = (
+    <ContextualAiActions
+      actions={[
+        { label: "Analyze my strength", prompt: "What's my best PR? Show a PR card from my training history." },
+        { label: "What PR should I chase next?", prompt: "What PR should I chase next based on my recent lifts?" },
+      ]}
+    />
   );
+
+  const logButton = (
+    <button className="primary-button records-log-button" type="button" onClick={() => setLogging(true)}>
+      <Plus size={17} /> Log record
+    </button>
+  );
+
+  const recordsToolbar = (
+    <section className="records-toolbar reveal delay-1">
+      {allRecords.length > 0 && (
+        <div className="records-kind-toggle view-toggle compact-toggle" role="tablist" aria-label="Record type">
+          {([
+            ["all", "All"],
+            ["weighted", "Weighted"],
+            ["bodyweight", "Bodyweight"],
+          ] as const).map(([kind, label]) => (
+            <button
+              key={kind}
+              type="button"
+              role="tab"
+              aria-selected={recordKind === kind}
+              className={recordKind === kind ? "active" : ""}
+              onClick={() => setRecordKind(kind)}
+            >
+              {label} ({kindCounts[kind]})
+            </button>
+          ))}
+        </div>
+      )}
+      <div className="records-toolbar-row">
+        {allRecords.length > 0 && (
+          <label className="catalog-search">
+            <Search size={19} />
+            <input
+              value={filter}
+              onChange={(e) => setFilter(e.target.value)}
+              placeholder="Search PR by exercise name…"
+            />
+            {filter.trim() ? (
+              <button type="button" className="clear-search" onClick={() => setFilter("")} aria-label="Clear filter">
+                <X size={16} />
+              </button>
+            ) : (
+              <kbd>⌘ K</kbd>
+            )}
+          </label>
+        )}
+        {logButton}
+      </div>
+    </section>
+  );
+
+  const logSheet = logging ? (
+    <div
+      className="modal-layer"
+      role="presentation"
+      onClick={closeLogForm}
+    >
+      <form
+        className="confirm-card log-record-card workout-create-form"
+        aria-labelledby="log-record-title"
+        role="dialog"
+        aria-modal="true"
+        onClick={(event) => event.stopPropagation()}
+        onSubmit={async (event) => {
+          event.preventDefault();
+          if (!exercise.trim() || !value.trim() || saving) return;
+          setSaving(true);
+          try {
+            await saveRecord({
+              exerciseId: crypto.randomUUID(),
+              exercise: exercise.trim(),
+              type: "strength",
+              value: value.trim(),
+              achievedAt: new Date().toISOString(),
+            });
+            setExercise("");
+            setValue("");
+            setLogging(false);
+          } finally {
+            setSaving(false);
+          }
+        }}
+      >
+        <button type="button" className="rest-close" onClick={closeLogForm} aria-label="Close">
+          <X size={16} />
+        </button>
+        <span className="log-record-mark"><Trophy size={22} /></span>
+        <h3 id="log-record-title">Log a record</h3>
+        <p>Add a PR by hand. Logged sets still create records automatically.</p>
+        <label>Exercise<input autoFocus value={exercise} onChange={(e) => setExercise(e.target.value)} placeholder="Bench press" required /></label>
+        <label>Result<input value={value} onChange={(e) => setValue(e.target.value)} placeholder="100 kg × 5" required /></label>
+        <div className="form-actions">
+          <button type="button" className="outline-button" disabled={saving} onClick={closeLogForm}>Cancel</button>
+          <button className="primary-button" type="submit" disabled={saving}>{saving ? "Saving…" : "Save record"}</button>
+        </div>
+      </form>
+    </div>
+  ) : null;
 
   if (allRecords.length === 0) {
     return (
@@ -2110,17 +2664,15 @@ export function RecordsPage() {
           eyebrow="Personal records"
           title="Your strongest moments."
           copy="PRs are picked up from logged sets. You can also add one by hand."
-          action={
-            <ContextualAiActions
-              actions={[
-                { label: "Analyze my strength", prompt: "What's my best PR? Show a PR card from my training history." },
-                { label: "What PR should I chase next?", prompt: "What PR should I chase next based on my recent lifts?" },
-              ]}
-            />
-          }
+          action={coachActions}
         />
-        {form}
-        <div className="empty-state"><Trophy size={40} /><h3>No records yet</h3><p>Log weight on an exercise to create a PR.</p></div>
+        {recordsToolbar}
+        <div className="empty-state">
+          <Trophy size={40} />
+          <h3>No records yet</h3>
+          <p>Log weight on an exercise to create a PR, or add one by hand.</p>
+        </div>
+        {logSheet}
       </div>
     );
   }
@@ -2131,33 +2683,82 @@ export function RecordsPage() {
         eyebrow="Personal records"
         title="Your strongest moments."
         copy="Heaviest logged sets become PRs automatically."
-        action={
-          <ContextualAiActions
-            actions={[
-              { label: "Analyze my strength", prompt: "What's my best PR? Show a PR card from my training history." },
-              { label: "What PR should I chase next?", prompt: "What PR should I chase next based on my recent lifts?" },
-            ]}
-          />
-        }
+        action={coachActions}
       />
       {latest && (
         <section className="records-hero reveal delay-1">
-          <div><Sparkles size={24} /><span>Latest record</span><h2>{latest.exercise}</h2><strong>{formatLoggedValue(latest.value)}</strong><p>{new Date(latest.achievedAt).toLocaleDateString()} · {latest.type} PR</p></div>
+          <div>
+            <Sparkles size={24} />
+            <span>Latest record</span>
+            <h2>{latest.exercise}</h2>
+            <strong>{displayRecordValue(latest.value)}</strong>
+            <p>{new Date(latest.achievedAt).toLocaleDateString()} · {latest.type} PR</p>
+          </div>
           <DumbbellDoodle />
         </section>
       )}
-      <section className="records-grid">
-        {allRecords.map((record, index) => (
-          <article key={record.id} className="paper-panel">
-            <span className="record-index">{String(index + 1).padStart(2, "0")}</span>
-            <Trophy size={22} />
-            <h3>{record.exercise}</h3>
-            <strong>{formatLoggedValue(record.value)}</strong>
-            <small>{new Date(record.achievedAt).toLocaleDateString()} · {record.type} PR</small>
-          </article>
-        ))}
-      </section>
-      {form}
+      {recordsToolbar}
+      {filtered.length === 0 ? (
+        <div className="empty-state reveal delay-2">
+          <Trophy size={40} />
+          <h3>No matching records</h3>
+          <p>Try another type or clear your search.</p>
+        </div>
+      ) : (
+        <section className="records-grid">
+          {filtered.map((record, index) => {
+            const source = recordExercises.find((item) => item.id === record.id);
+            const catalog = source
+              ? catalogMedia[source.exerciseId] ?? catalogMedia[`name:${source.name.trim().toLowerCase()}`]
+              : undefined;
+            const gif = source
+              ? workoutStillUrl(source, catalog) || youtubePoster(source.videoUrl || videoUrlForExercise(source.exerciseId, source.name) || "")
+              : "";
+            const bodyweightRecord = isBodyweightRecordValue(record.value);
+            const trend = exerciseProgressTrend(training, workouts, {
+              exerciseId: source?.exerciseId || record.exerciseId,
+              exercise: record.exercise,
+              value: record.value,
+            });
+            const trendLabel = bodyweightRecord ? "Best reps" : "Best load";
+            return (
+              <article key={record.id} className="paper-panel record-card">
+                <span className="record-gif">
+                  {gif ? (
+                    <ExerciseStill src={gif} alt={`${record.exercise} demonstration`} width={180} height={180} />
+                  ) : (
+                    <Trophy size={26} />
+                  )}
+                  <span className="record-index">{String(index + 1).padStart(2, "0")}</span>
+                </span>
+                <div className="record-card-body">
+                  <h3>{record.exercise}</h3>
+                  <strong>{displayRecordValue(record.value)}</strong>
+                  <small>
+                    {new Date(record.achievedAt).toLocaleDateString()} ·{" "}
+                    {bodyweightRecord ? "bodyweight" : record.type} PR
+                  </small>
+                </div>
+                <div className="record-card-chart" aria-hidden="true">
+                  <div className="record-chart-meta">
+                    <span>{trendLabel}</span>
+                    <b>{trend.length > 1 ? `${trend.length} logs` : "Fresh"}</b>
+                  </div>
+                  {trend.length > 1 ? (
+                    <MiniChart
+                      values={trend}
+                      color={bodyweightRecord ? "var(--orange)" : "var(--lime)"}
+                    />
+                  ) : (
+                    <span className="record-chart-empty">No trend yet</span>
+                  )}
+                </div>
+              </article>
+            );
+          })}
+        </section>
+      )}
+      {logSheet}
     </div>
   );
 }

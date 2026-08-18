@@ -76,17 +76,6 @@ function AppShellInner({ children }: { children: React.ReactNode }) {
               </Link>
             ))}
           </nav>
-          <button className="sidebar-coach" type="button" onClick={() => coach?.openPanel()}>
-            <span className="coach-face">
-              <CoachMark />
-            </span>
-            <span className="sidebar-coach-copy">
-              <span className="eyebrow">Training coach</span>
-              <strong>Ask Atlas</strong>
-              <p>{activeWorkout ? `On ${activeWorkout.name}` : "Your history, on call."}</p>
-            </span>
-            <Scribble />
-          </button>
           <Link className="profile-chip" href="/settings" onClick={() => setSidebarOpen(false)}>
             <span className="avatar">{avatar}</span>
             <span>

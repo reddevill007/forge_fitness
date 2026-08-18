@@ -46,12 +46,17 @@ export function CoachPanel() {
             </div>
           </div>
           <div className="coach-header-actions">
-            <button type="button" className="icon-button" aria-label={coach.expanded ? "Shrink Coach" : "Expand Coach"} onClick={coach.toggleExpanded}>
-              {coach.expanded ? <Minimize2 size={18} /> : <Maximize2 size={18} />}
-            </button>
-            <button type="button" className="icon-button" aria-label="Close Coach" onClick={coach.closePanel}>
-              <X size={18} />
-            </button>
+              <button
+                type="button"
+                className="icon-button"
+                aria-label={coach.expanded ? "Shrink Coach" : "Expand Coach"}
+                onClick={coach.toggleExpanded}
+              >
+                {coach.expanded ? <Minimize2 size={18} /> : <Maximize2 size={18} />}
+              </button>
+              <button type="button" className="icon-button" aria-label="Close Coach" onClick={coach.closePanel}>
+                <X size={18} />
+              </button>
           </div>
         </header>
 
@@ -155,7 +160,7 @@ export function CoachPanel() {
 
 export function CoachFab() {
   const coach = useCoach();
-  if (!coach || coach.open) return null;
+  if (!coach || coach.open || coach.pageContext?.currentPage === "ai") return null;
   return (
     <button className="coach-fab" type="button" onClick={coach.openPanel} aria-label="Ask Atlas, your coach">
       <span className="coach-fab-face">

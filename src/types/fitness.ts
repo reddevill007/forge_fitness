@@ -60,7 +60,18 @@ export type WorkoutExercise = {
   videoUrl?: string;
   gifUrl?: string;
   imageUrl?: string;
-  alternatives?: Array<{ exerciseId: string; name: string }>;
+  alternatives?: WorkoutExerciseAlternative[];
+};
+
+export type WorkoutExerciseAlternative = {
+  exerciseId: string;
+  name: string;
+  target?: string;
+  secondary?: string[];
+  mediaId?: string;
+  videoUrl?: string;
+  gifUrl?: string;
+  imageUrl?: string;
 };
 
 export type WorkoutDay = {
