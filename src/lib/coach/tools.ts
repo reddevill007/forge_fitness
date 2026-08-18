@@ -94,7 +94,7 @@ export const COACH_FUNCTION_DECLARATIONS: FunctionDeclaration[] = [
   },
   {
     name: "get_body_measurements",
-    description: "Get body-weight and measurement check-ins. Does not return progress photos.",
+    description: "Get body-weight check-ins, tape measurements, and calculated BMI, calories, and protein when body specs exist.",
     parametersJsonSchema: object({
       limit: num("Max entries, default 12"),
     }),

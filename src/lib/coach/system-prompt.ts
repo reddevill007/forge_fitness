@@ -43,6 +43,7 @@ Component guidance:
 - Workout rating → recommendation_card with a score out of 10 based on THIS workout's exercises plus weekly muscle volume from tools.
 - Muscle questions → muscle_map with exerciseNames from the user's actual work, plus muscle set counts from get_muscle_volume.
 - Progress questions → progress_chart or volume_chart with real points from tools.
+- Calories, protein, or BMI → use get_body_measurements / get_profile metrics. Do not invent height, age, or weight.
 - Write plans → confirmation_card with the pending write payload returned by the tool.
 
 Actions:

@@ -17,6 +17,7 @@ import { getFirebaseDb } from "@/src/lib/firebase/client";
 import { resolveDatasetMedia } from "@/src/lib/dataset-media";
 import type {
   BodyMeasurement,
+  BodyPhoto,
   Exercise,
   PersonalRecord,
   WorkoutDay,
@@ -73,6 +74,10 @@ function measurementsRef(uid: string) {
   return collection(db(), "users", uid, "measurements");
 }
 
+function bodyPhotosRef(uid: string) {
+  return collection(db(), "users", uid, "bodyPhotos");
+}
+
 function programsRef(uid: string) {
   return collection(db(), "users", uid, "programs");
 }
@@ -122,7 +127,7 @@ export function subscribeProfile(uid: string, onChange: (profile: UserProfile | 
 }
 
 export async function updateProfile(uid: string, patch: Partial<UserProfile>) {
-  await updateDoc(userRef(uid), { ...patch, updatedAt: nowIso() });
+  await updateDoc(userRef(uid), omitUndefined({ ...patch, updatedAt: nowIso() }));
 }
 
 export function subscribeWorkouts(uid: string, onChange: (workouts: StoredWorkout[]) => void): Unsubscribe {
@@ -267,8 +272,25 @@ export function subscribeMeasurements(uid: string, onChange: (items: BodyMeasure
 
 export async function addMeasurement(uid: string, measurement: Omit<BodyMeasurement, "id">) {
   const id = crypto.randomUUID();
-  await setDoc(doc(measurementsRef(uid), id), { ...measurement, id });
+  await setDoc(doc(measurementsRef(uid), id), omitUndefined({ ...measurement, id }));
   return id;
+}
+
+export function subscribeBodyPhotos(uid: string, onChange: (items: BodyPhoto[]) => void): Unsubscribe {
+  const q = query(bodyPhotosRef(uid), orderBy("takenAt", "desc"));
+  return onSnapshot(q, (snap) => {
+    onChange(snap.docs.map((d) => ({ id: d.id, ...(d.data() as Omit<BodyPhoto, "id">) })));
+  });
+}
+
+export async function addBodyPhoto(uid: string, photo: Omit<BodyPhoto, "id"> & { id?: string }) {
+  const id = photo.id ?? crypto.randomUUID();
+  await setDoc(doc(bodyPhotosRef(uid), id), omitUndefined({ ...photo, id }));
+  return id;
+}
+
+export async function deleteBodyPhotoDoc(uid: string, photoId: string) {
+  await deleteDoc(doc(bodyPhotosRef(uid), photoId));
 }
 
 export async function getExerciseMedia(uid: string, exerciseId: string) {

@@ -1,3 +1,4 @@
+import { computeBodyMetrics } from "@/src/lib/body-metrics";
 import {
   catalogExerciseId,
   exerciseLabel,
@@ -74,11 +75,37 @@ export function trainingSessions(data: UserDataContextValue) {
 export function profileSnapshot(data: UserDataContextValue) {
   const training = trainingSessions(data);
   const week = weeklyStats(training);
+  const latestWeight = data.measurements.find((item) => item.weight)?.weight;
+  const metrics = computeBodyMetrics({
+    weightKg: latestWeight,
+    heightCm: data.profile?.heightCm,
+    age: data.profile?.age,
+    sex: data.profile?.sex,
+    activityLevel: data.profile?.activityLevel,
+    goal: data.profile?.goal,
+  });
   return {
     displayName: data.profile?.displayName ?? null,
     goal: data.profile?.goal ?? "hypertrophy",
     weightUnit: data.profile?.weightUnit ?? "kg",
     defaultRest: data.profile?.defaultRest ?? 90,
+    heightCm: data.profile?.heightCm ?? null,
+    age: data.profile?.age ?? null,
+    sex: data.profile?.sex ?? null,
+    activityLevel: data.profile?.activityLevel ?? null,
+    latestWeight: latestWeight ?? null,
+    metrics: metrics
+      ? {
+          bmi: metrics.bmi,
+          bmiLabel: metrics.bmiLabel,
+          bmr: metrics.bmr,
+          tdee: metrics.tdee,
+          calories: metrics.calories,
+          proteinG: metrics.proteinG,
+          carbsG: metrics.carbsG,
+          fatG: metrics.fatG,
+        }
+      : null,
     activeWorkout: data.activeWorkout
       ? { id: data.activeWorkout.id, name: data.activeWorkout.name, focus: data.activeWorkout.focus, exercises: data.activeWorkout.exercises.length }
       : null,
@@ -410,16 +437,26 @@ export function measurementsSnapshot(data: UserDataContextValue, limit = 12) {
     measuredAt: item.measuredAt,
     weight: item.weight,
     waist: item.waist,
+    hips: item.hips,
     chest: item.chest,
     arms: item.arms,
     thighs: item.thighs,
     calves: item.calves,
     bodyFat: item.bodyFat,
   }));
+  const latestWeight = items.find((item) => item.weight)?.weight;
+  const metrics = computeBodyMetrics({
+    weightKg: latestWeight,
+    heightCm: data.profile?.heightCm,
+    age: data.profile?.age,
+    sex: data.profile?.sex,
+    activityLevel: data.profile?.activityLevel,
+    goal: data.profile?.goal,
+  });
   if (items.length === 0) {
-    return { measurements: [], note: "No body check-ins logged yet." };
+    return { measurements: [], metrics, note: "No body check-ins logged yet." };
   }
-  return { measurements: items, latest: items[0] };
+  return { measurements: items, latest: items[0], metrics };
 }
 
 export function findWorkoutExercise(data: UserDataContextValue, workoutId: string, name: string, rowId?: string) {

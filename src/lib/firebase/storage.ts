@@ -1,5 +1,4 @@
-import { getDownloadURL, ref, uploadBytes } from "firebase/storage";
-import { getFirebaseStorage } from "@/src/lib/firebase/client";
+import { getFirebaseAuth } from "@/src/lib/firebase/client";
 
 const MAX_BYTES = 12 * 1024 * 1024;
 const ALLOWED_TYPES = new Set([
@@ -29,6 +28,28 @@ export function assertExerciseMediaFile(file: File) {
   }
 }
 
+async function idToken() {
+  const auth = getFirebaseAuth();
+  const user = auth?.currentUser;
+  if (!user) throw new Error("Not signed in");
+  return user.getIdToken();
+}
+
+async function uploadStoredFile(path: string, file: File) {
+  const token = await idToken();
+  const body = new FormData();
+  body.set("path", path);
+  body.set("file", file);
+  const res = await fetch("/api/storage", {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token}` },
+    body,
+  });
+  const payload = (await res.json().catch(() => ({}))) as { url?: string; error?: string };
+  if (!res.ok || !payload.url) throw new Error(payload.error || "Could not upload that file.");
+  return { path, url: payload.url };
+}
+
 export async function uploadCustomExerciseMedia(
   uid: string,
   exerciseId: string,
@@ -36,10 +57,26 @@ export async function uploadCustomExerciseMedia(
   file: File,
 ) {
   assertExerciseMediaFile(file);
-  const store = getFirebaseStorage();
-  if (!store) throw new Error("Firebase Storage is not configured.");
   const path = `users/${uid}/customExercises/${exerciseId}/${kind}.${extensionFor(file)}`;
-  const fileRef = ref(store, path);
-  await uploadBytes(fileRef, file, { contentType: file.type || "image/gif" });
-  return getDownloadURL(fileRef);
+  const stored = await uploadStoredFile(path, file);
+  return stored.url;
+}
+
+export async function uploadBodyPhoto(uid: string, photoId: string, file: File) {
+  assertExerciseMediaFile(file);
+  const path = `users/${uid}/bodyPhotos/${photoId}.${extensionFor(file)}`;
+  return uploadStoredFile(path, file);
+}
+
+export async function deleteStoredFile(path: string) {
+  if (!path) return;
+  try {
+    const token = await idToken();
+    await fetch(`/api/storage?path=${encodeURIComponent(path)}`, {
+      method: "DELETE",
+      headers: { Authorization: `Bearer ${token}` },
+    });
+  } catch {
+    // Best-effort cleanup; the Firestore doc is the source of truth.
+  }
 }

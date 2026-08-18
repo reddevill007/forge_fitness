@@ -6,6 +6,9 @@ import type {
   WorkoutSession,
 } from "@/src/types/fitness";
 
+export type BodySex = "male" | "female";
+export type ActivityLevel = "sedentary" | "light" | "moderate" | "active" | "very_active";
+
 export type UserProfile = {
   displayName: string;
   email: string;
@@ -13,6 +16,10 @@ export type UserProfile = {
   weightUnit: "kg" | "lb";
   defaultRest: number;
   autoStartRest: boolean;
+  heightCm?: number;
+  age?: number;
+  sex?: BodySex;
+  activityLevel?: ActivityLevel;
   createdAt: string;
   updatedAt: string;
 };

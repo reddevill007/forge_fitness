@@ -2763,75 +2763,7 @@ export function RecordsPage() {
   );
 }
 
-export function BodyPage() {
-  const { measurements, saveMeasurement } = useUserData();
-  const [weight, setWeight] = useState("");
-  const [waist, setWaist] = useState("");
-  const latest = measurements[0];
-  const chartValues = [...measurements].reverse().map((item) => item.weight ?? 0).filter(Boolean);
-  useCoachPage({ currentPage: "body" });
-
-  return (
-    <div>
-      <PageIntro
-        eyebrow="Body tracking"
-        title="Change takes shape."
-        copy="Measurements are stored privately in your Firebase account."
-        action={
-          <ContextualAiActions
-            actions={[
-              { label: "How is my weight trending?", prompt: "How have my body measurements changed? Use logged check-ins only." },
-            ]}
-          />
-        }
-      />
-      <form
-        className="paper-panel workout-create-form reveal delay-1"
-        onSubmit={async (event) => {
-          event.preventDefault();
-          await saveMeasurement({
-            measuredAt: new Date().toISOString(),
-            weight: weight ? Number(weight) : undefined,
-            waist: waist ? Number(waist) : undefined,
-          });
-          setWeight("");
-          setWaist("");
-        }}
-      >
-        <h3>Add check-in</h3>
-        <label>Weight (kg)<input type="number" step="0.1" value={weight} onChange={(e) => setWeight(e.target.value)} /></label>
-        <label>Waist (cm)<input type="number" step="0.1" value={waist} onChange={(e) => setWaist(e.target.value)} /></label>
-        <button className="primary-button" type="submit">Save check-in</button>
-      </form>
-
-      {measurements.length === 0 ? (
-        <div className="empty-state reveal delay-2"><Camera size={40} /><h3>No measurements yet</h3><p>Log your first check-in above.</p></div>
-      ) : (
-        <section className="body-grid">
-          <article className="paper-panel body-chart reveal">
-            <SectionTitle eyebrow="Trend" title="Body weight" />
-            {latest?.weight && <div className="chart-value"><strong>{latest.weight} kg</strong><span>latest entry</span></div>}
-            {chartValues.length > 1 && (
-              <>
-                <div className="hero-chart"><MiniChart values={chartValues} color="var(--orange)" /></div>
-                <div className="chart-labels">{[...measurements].reverse().slice(-5).map((item) => <span key={item.id}>{new Date(item.measuredAt).toLocaleDateString(undefined, { month: "short", day: "numeric" })}</span>)}</div>
-              </>
-            )}
-          </article>
-          <article className="paper-panel reveal delay-1">
-            <SectionTitle eyebrow="History" title="Recent check-ins" />
-            {measurements.slice(0, 6).map((item) => (
-              <div key={item.id} className="measurement-row">
-                <strong>{new Date(item.measuredAt).toLocaleDateString()}</strong>
-                <span>{item.weight ? `${item.weight} kg` : "—"}{item.waist ? ` · ${item.waist} cm waist` : ""}</span>
-              </div>
-            ))}
-          </article>
-        </section>
-      )}
-    </div>
-  );
-}
+export { BodyPage } from "@/src/components/body-page";
 
 export function ProgramsPage() {
   const { programs, workouts, saveProgram, trashProgram, patchProgram, activateProgram, trashedPrograms } = useUserData();

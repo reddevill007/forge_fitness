@@ -12,11 +12,13 @@ import {
 } from "react";
 import { useAuth } from "@/src/lib/firebase/auth-context";
 import {
+  addBodyPhoto,
   addCustomExercise,
   addMeasurement,
   addRecord,
   createProgram,
   createWorkout,
+  deleteBodyPhotoDoc,
   deleteProgram,
   deleteWorkout,
   restoreProgram,
@@ -30,6 +32,7 @@ import {
   setActiveWorkout,
   setExerciseMedia,
   subscribeActiveSession,
+  subscribeBodyPhotos,
   subscribeCustomExercises,
   subscribeExerciseMedia,
   subscribeMeasurements,
@@ -48,8 +51,8 @@ import {
 } from "@/src/lib/firebase/firestore";
 import type { ActiveSessionProgress, StoredProgram, StoredSession, StoredWorkout, UserProfile } from "@/src/lib/firebase/types";
 import { isTrashed } from "@/src/lib/firebase/types";
-import type { BodyMeasurement, CustomExerciseInput, Exercise, PersonalRecord, WorkoutDay, WorkoutProgram } from "@/src/types/fitness";
-import { uploadCustomExerciseMedia } from "@/src/lib/firebase/storage";
+import type { BodyMeasurement, BodyPhoto, CustomExerciseInput, Exercise, PersonalRecord, WorkoutDay, WorkoutProgram } from "@/src/types/fitness";
+import { deleteStoredFile, uploadBodyPhoto, uploadCustomExerciseMedia } from "@/src/lib/firebase/storage";
 import { newRecordsToSave, recordsFromTraining, stampExerciseSessions } from "@/src/lib/firebase/stats";
 import {
   enqueueOutbox,
@@ -71,6 +74,7 @@ export type UserDataContextValue = {
   sessions: StoredSession[];
   records: PersonalRecord[];
   measurements: BodyMeasurement[];
+  bodyPhotos: BodyPhoto[];
   customExercises: Exercise[];
   activeWorkout: StoredWorkout | null;
   activeProgram: StoredProgram | null;
@@ -101,6 +105,8 @@ export type UserDataContextValue = {
   completeSession: (pending: PendingSession) => Promise<string>;
   saveRecord: (record: Omit<PersonalRecord, "id">) => Promise<string>;
   saveMeasurement: (measurement: Omit<BodyMeasurement, "id">) => Promise<string>;
+  saveBodyPhoto: (input: { file: File; pose: BodyPhoto["pose"]; takenAt: string; weight?: number }) => Promise<string>;
+  deleteBodyPhoto: (photoId: string) => Promise<void>;
   saveVideoUrl: (exerciseId: string, videoUrl: string) => Promise<void>;
   videoUrlForExercise: (exerciseId: string, name?: string) => string | undefined;
   addExerciseToCatalog: (exercise: CustomExerciseInput) => Promise<string>;
@@ -121,6 +127,7 @@ export function UserDataProvider({ children }: { children: ReactNode }) {
   const [pendingSessions, setPendingSessions] = useState<StoredSession[]>([]);
   const [records, setRecords] = useState<PersonalRecord[]>([]);
   const [measurements, setMeasurements] = useState<BodyMeasurement[]>([]);
+  const [bodyPhotos, setBodyPhotos] = useState<BodyPhoto[]>([]);
   const [customExercises, setCustomExercises] = useState<Exercise[]>([]);
   const [exerciseMedia, setExerciseMediaMap] = useState<Record<string, string>>({});
   const [activeSession, setActiveSession] = useState<ActiveSessionProgress | null>(null);
@@ -143,6 +150,7 @@ export function UserDataProvider({ children }: { children: ReactNode }) {
         setPendingSessions([]);
         setRecords([]);
         setMeasurements([]);
+        setBodyPhotos([]);
         setCustomExercises([]);
         setExerciseMediaMap({});
         setActiveSession(null);
@@ -165,6 +173,7 @@ export function UserDataProvider({ children }: { children: ReactNode }) {
       subscribeSessions(uid, setRemoteSessions),
       subscribeRecords(uid, setRecords),
       subscribeMeasurements(uid, setMeasurements),
+      subscribeBodyPhotos(uid, setBodyPhotos),
       subscribeCustomExercises(uid, setCustomExercises),
       subscribeExerciseMedia(uid, setExerciseMediaMap),
       subscribeActiveSession(uid, (remote) => {
@@ -528,6 +537,35 @@ export function UserDataProvider({ children }: { children: ReactNode }) {
     [uid],
   );
 
+  const saveBodyPhoto = useCallback(
+    async (input: { file: File; pose: BodyPhoto["pose"]; takenAt: string; weight?: number }) => {
+      if (!uid) throw new Error("Not signed in");
+      const id = crypto.randomUUID();
+      const stored = await uploadBodyPhoto(uid, id, input.file);
+      await addBodyPhoto(uid, {
+        id,
+        url: stored.url,
+        path: stored.path,
+        pose: input.pose,
+        takenAt: input.takenAt,
+        createdAt: new Date().toISOString(),
+        weight: input.weight,
+      });
+      return id;
+    },
+    [uid],
+  );
+
+  const removeBodyPhoto = useCallback(
+    async (photoId: string) => {
+      if (!uid) return;
+      const photo = bodyPhotos.find((item) => item.id === photoId);
+      await deleteBodyPhotoDoc(uid, photoId);
+      if (photo?.path) await deleteStoredFile(photo.path);
+    },
+    [bodyPhotos, uid],
+  );
+
   const saveVideoUrl = useCallback(
     async (exerciseId: string, videoUrl: string) => {
       if (!uid) return;
@@ -607,6 +645,7 @@ export function UserDataProvider({ children }: { children: ReactNode }) {
       sessions,
       records,
       measurements,
+      bodyPhotos,
       customExercises,
       activeWorkout,
       activeProgram,
@@ -637,6 +676,8 @@ export function UserDataProvider({ children }: { children: ReactNode }) {
       completeSession,
       saveRecord,
       saveMeasurement,
+      saveBodyPhoto,
+      deleteBodyPhoto: removeBodyPhoto,
       saveVideoUrl,
       videoUrlForExercise,
       addExerciseToCatalog,
@@ -653,6 +694,7 @@ export function UserDataProvider({ children }: { children: ReactNode }) {
       sessions,
       records,
       measurements,
+      bodyPhotos,
       customExercises,
       activeWorkout,
       activeProgram,
@@ -683,6 +725,8 @@ export function UserDataProvider({ children }: { children: ReactNode }) {
       completeSession,
       saveRecord,
       saveMeasurement,
+      saveBodyPhoto,
+      removeBodyPhoto,
       saveVideoUrl,
       videoUrlForExercise,
       addExerciseToCatalog,

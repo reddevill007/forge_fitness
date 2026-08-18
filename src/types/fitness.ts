@@ -117,12 +117,25 @@ export type PersonalRecord = {
   achievedAt: string;
 };
 
+export type BodyPhotoPose = "front" | "side" | "back";
+
+export type BodyPhoto = {
+  id: string;
+  url: string;
+  path: string;
+  pose: BodyPhotoPose;
+  takenAt: string;
+  createdAt: string;
+  weight?: number;
+};
+
 export type BodyMeasurement = {
   id: string;
   measuredAt: string;
   weight?: number;
   bodyFat?: number;
   waist?: number;
+  hips?: number;
   chest?: number;
   arms?: number;
   thighs?: number;

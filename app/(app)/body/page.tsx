@@ -1,4 +1,4 @@
-import { BodyPage } from "@/src/components/forge-app";
+import { BodyPage } from "@/src/components/body-page";
 
 export default function BodyRoute() {
   return <BodyPage />;

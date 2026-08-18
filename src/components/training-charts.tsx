@@ -7,9 +7,14 @@ export type ChartPoint = { label: string; value: number };
 
 type Coord = { x: number; y: number };
 
-function chartBounds(values: number[]) {
-  const max = Math.max(...values, 1);
-  return { min: 0, max, span: max || 1 };
+function chartBounds(values: number[], fit = false) {
+  const maxRaw = Math.max(...values, 1);
+  if (!fit) return { min: 0, max: maxRaw, span: maxRaw || 1 };
+  const minRaw = Math.min(...values);
+  const pad = Math.max(0.6, (maxRaw - minRaw) * 0.22 || maxRaw * 0.04);
+  const min = Math.max(0, minRaw - pad);
+  const max = maxRaw + pad;
+  return { min, max, span: max - min || 1 };
 }
 
 function smoothLine(points: Coord[]) {
@@ -35,10 +40,16 @@ export function AreaChart({
   points,
   color = "var(--lime)",
   unit = "kg",
+  fit = false,
+  callout,
+  formatValue = formatVolume,
 }: {
   points: ChartPoint[];
   color?: string;
   unit?: string;
+  fit?: boolean;
+  callout?: string | false;
+  formatValue?: (value: number) => string;
 }) {
   const rawId = useId();
   const id = rawId.replace(/:/g, "");
@@ -47,10 +58,10 @@ export function AreaChart({
   const pad = { top: 22, right: 16, bottom: 32, left: 12 };
   const innerW = width - pad.left - pad.right;
   const innerH = height - pad.top - pad.bottom;
-  const { max } = chartBounds(points.map((point) => point.value));
+  const { min, span } = chartBounds(points.map((point) => point.value), fit);
   const coords = points.map((point, index) => {
     const x = pad.left + (points.length <= 1 ? innerW / 2 : (index / (points.length - 1)) * innerW);
-    const y = pad.top + innerH - (point.value / max) * innerH;
+    const y = pad.top + innerH - ((point.value - min) / span) * innerH;
     return { ...point, x, y };
   });
   const line = smoothLine(coords);
@@ -121,10 +132,10 @@ export function AreaChart({
           ) : null
         ))}
       </svg>
-      {latest ? (
+      {latest && callout !== false ? (
         <div className="forge-chart-callout">
-          <strong>{formatVolume(latest.value)}</strong>
-          <small>{unit} this week</small>
+          <strong>{formatValue(latest.value)}</strong>
+          <small>{callout ?? `${unit} this week`}</small>
         </div>
       ) : null}
     </div>
