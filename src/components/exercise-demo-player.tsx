@@ -33,12 +33,16 @@ export function ExerciseDemoPlayer({
   gifUrl,
   imageUrl,
   label,
+  alt,
+  preferGif,
 }: {
   title: string;
   videoUrl?: string | null;
   gifUrl?: string | null;
   imageUrl?: string | null;
   label?: string;
+  alt?: string;
+  preferGif?: boolean;
 }) {
   const youtube = videoUrl ? toYoutubeEmbedUrl(videoUrl, true) : null;
   const fileVideo = videoUrl && isDirectVideoUrl(videoUrl) ? videoUrl : null;
@@ -47,15 +51,16 @@ export function ExerciseDemoPlayer({
   const hasGif = Boolean(still);
   const iframeRef = useRef<HTMLIFrameElement | null>(null);
   const videoRef = useRef<HTMLVideoElement | null>(null);
-  const [source, setSource] = useState<Source>(hasVideo ? "video" : "gif");
+  const initial: Source = preferGif && hasGif ? "gif" : hasVideo ? "video" : "gif";
+  const [source, setSource] = useState<Source>(initial);
   const [playing, setPlaying] = useState(true);
   const [muted, setMuted] = useState(true);
 
   useEffect(() => {
-    setSource(hasVideo ? "video" : "gif");
+    setSource(preferGif && hasGif ? "gif" : hasVideo ? "video" : "gif");
     setPlaying(true);
     setMuted(true);
-  }, [title, hasVideo, videoUrl]);
+  }, [title, hasGif, hasVideo, preferGif, videoUrl]);
 
   useEffect(() => {
     if (!youtube) return;
@@ -118,7 +123,11 @@ export function ExerciseDemoPlayer({
 
   const showVideo = source === "video" && hasVideo;
   const portrait = Boolean(showVideo && youtube);
-  const badge = showVideo ? (label ?? (youtube ? "Shorts · loop" : "Video · loop")) : (label ?? "Dataset GIF");
+  const badge = label === ""
+    ? ""
+    : showVideo
+      ? (label ?? (youtube ? "Shorts · loop" : "Video · loop"))
+      : (label ?? "Dataset GIF");
 
   return (
     <div className="demo-player">
@@ -164,9 +173,9 @@ export function ExerciseDemoPlayer({
           />
         )}
         {!showVideo && still && (
-          <ExerciseStill className="exercise-gif" src={still} alt={`${title} demonstration`} width={440} height={780} />
+          <ExerciseStill className="exercise-gif" src={still} alt={alt ?? `${title} demonstration`} width={440} height={780} />
         )}
-        <span>{badge}</span>
+        {badge ? <span>{badge}</span> : null}
       </div>
       {showVideo && (
         <div className="demo-controls">

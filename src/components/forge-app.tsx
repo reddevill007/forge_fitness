@@ -8,7 +8,6 @@ import {
   ArrowUpRight,
   BarChart3,
   CalendarDays,
-  Camera,
   Check,
   ChevronDown,
   ChevronRight,
@@ -28,7 +27,6 @@ import {
   Play,
   Plus,
   Search,
-  ShieldCheck,
   SkipForward,
   Sparkles,
   Sun,
@@ -56,6 +54,7 @@ import {
   mergeRecords,
   recordsFromTraining,
   sessionDate,
+  sessionDurationSeconds,
   sessionSetCount,
   sessionVolume,
   stampExerciseSessions,
@@ -65,11 +64,14 @@ import {
   weeklyVolumeSeries,
   weeklySetsSeries,
   weeklyDurationSeries,
+  dailySetsSeries,
+  dailyDurationSeries,
   weekdaySessionCounts,
   currentStreak,
   workingSet,
   workoutCompletedToday,
   displayRecordValue,
+  elapsedSeconds,
   formatLoad,
   formatLoggedValue,
   isBodyweightRecordValue,
@@ -84,7 +86,7 @@ import type { ActiveSessionProgress, StoredSession, StoredWorkout, UserProfile }
 import { storeSessionSummary } from "@/src/lib/session-summary";
 import { useDebouncedCallback } from "@/src/lib/use-debounced-callback";
 import type { Exercise, ExerciseSession, SetLog, WorkoutExercise } from "@/src/types/fitness";
-import { CustomExerciseForm, CustomExerciseMediaEditor } from "@/src/components/custom-exercise-form";
+import { CustomExerciseForm } from "@/src/components/custom-exercise-form";
 import { ContextualAiActions } from "@/src/components/coach/contextual-actions";
 import { ExerciseStill } from "@/src/components/exercise-still";
 import { ExerciseDemoPlayer } from "@/src/components/exercise-demo-player";
@@ -102,9 +104,11 @@ import {
   Scribble,
 } from "@/src/components/doodles";
 import { exerciseMediaProvider } from "@/src/lib/exercise-media";
+import { AnatomyAtlas, AnatomyPlate } from "@/src/components/anatomy-plate";
 import { AnatomeMuscleImpact } from "@/src/components/anatome-muscle-impact";
+import { FULL_BODY_PLATE, resolveAnatomyPlate } from "@/src/lib/body-anatomy";
 import { AreaChart, DonutChart, VolumeBars, WeekActivity } from "@/src/components/training-charts";
-import { AnatomeExerciseMuscleThumb, AnatomeExerciseMuscles } from "@/src/components/anatome-exercise-muscles";
+import { AnatomeExerciseMuscleThumb } from "@/src/components/anatome-exercise-muscles";
 import { anatomeResolveExercise } from "@/src/lib/anatome";
 import { fetchExercise, fetchExercises } from "@/src/lib/exercises-client";
 import { useTheme } from "@/src/lib/theme";
@@ -114,6 +118,7 @@ import { MuscleFocusSelect } from "@/src/components/muscle-focus-select";
 import { FocusMuscleMap } from "@/src/components/focus-muscle-map";
 import { parseFocusMuscles } from "@/src/lib/focus-muscles";
 import { useOnlineStatus } from "@/src/lib/offline";
+import { HistorySessionCard } from "@/src/components/history-session-card";
 
 function formatTime(seconds: number) {
   const minutes = Math.floor(seconds / 60).toString().padStart(2, "0");
@@ -269,6 +274,8 @@ export function Dashboard({ onStart }: { onStart: () => void }) {
   const volumeSeries = weeklyVolumeSeries(training, 8);
   const setsSeries = weeklySetsSeries(training, 8);
   const durationSeries = weeklyDurationSeries(training, 8);
+  const dailySets = dailySetsSeries(training, 14);
+  const dailyMinutes = dailyDurationSeries(training, 14);
   const weekdayCounts = weekdaySessionCounts(training);
   const streak = currentStreak(training);
   const lifts = exerciseStats(training, workouts).slice(0, 4);
@@ -455,6 +462,37 @@ export function Dashboard({ onStart }: { onStart: () => void }) {
         </article>
       </section>
 
+      <section className="dash-charts">
+        <article className="paper-panel reveal">
+          <SectionTitle eyebrow="Each day" title="Time trained" />
+          {training.length > 0 ? (
+            <AreaChart
+              points={dailyMinutes}
+              color="var(--blue)"
+              unit="min"
+              callout="min today"
+              formatValue={(value) => String(value)}
+            />
+          ) : (
+            <p className="chart-empty">Start and finish a session to plot minutes per day.</p>
+          )}
+        </article>
+        <article className="paper-panel reveal delay-1">
+          <SectionTitle eyebrow="Each day" title="Sets done" />
+          {training.length > 0 ? (
+            <AreaChart
+              points={dailySets}
+              color="var(--orange)"
+              unit="sets"
+              callout="sets today"
+              formatValue={(value) => String(value)}
+            />
+          ) : (
+            <p className="chart-empty">Logged working sets show up here day by day.</p>
+          )}
+        </article>
+      </section>
+
       <section className="dash-mix">
         <article className="paper-panel reveal">
           <SectionTitle eyebrow="Split" title={muscleSplit.length ? "Sets by muscle" : "Planned muscles"} />
@@ -544,7 +582,7 @@ export function Dashboard({ onStart }: { onStart: () => void }) {
               <Link className="dash-recent-row" href="/history" key={session.id}>
                 <span>{new Intl.DateTimeFormat("en-US", { weekday: "short", month: "short", day: "numeric" }).format(new Date(sessionDate(session)))}</span>
                 <strong>{session.workoutName}</strong>
-                <small>{sessionSetCount(session)} sets · {formatVolume(sessionVolume(session))} kg · {formatDuration(session.durationSeconds)}</small>
+                <small>{sessionSetCount(session)} sets · {formatVolume(sessionVolume(session))} kg · {formatDuration(sessionDurationSeconds(session))}</small>
               </Link>
             ))}
           </div>
@@ -770,6 +808,16 @@ export function WorkoutsPage({ onStart }: { onStart: () => void }) {
                   showMap={false}
                   onChange={(value) => void markSaved(patchWorkout(selected.id, { focus: value }))}
                 />
+                <AutosaveTextInput
+                  key={`${selected.id}-duration`}
+                  label="Duration (min)"
+                  type="number"
+                  value={String(selected.duration)}
+                  onCommit={(value) => {
+                    const minutes = Math.max(1, Number(value) || selected.duration);
+                    void markSaved(patchWorkout(selected.id, { duration: minutes }));
+                  }}
+                />
               </div>
               <div className="builder-stats">
                 <span><strong>{selected.exercises.length}</strong> exercises</span>
@@ -994,6 +1042,8 @@ export function WorkoutsPage({ onStart }: { onStart: () => void }) {
 
 export function ExercisesPage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const muscle = (searchParams.get("muscle") ?? "").trim();
   const { customExercises, addExerciseToCatalog } = useUserData();
   useCoachPage({ currentPage: "exercises" });
   const [query, setQuery] = useState("");
@@ -1006,8 +1056,12 @@ export function ExercisesPage() {
   const filters = ["All", "Chest", "Back", "Shoulders", "Legs", "Arms"];
 
   useEffect(() => {
+    setPage(1);
+  }, [muscle]);
+
+  useEffect(() => {
     const timer = window.setTimeout(() => {
-      fetchExercises({ q: query, group: filter, page, limit: 24 })
+      fetchExercises({ q: query, group: filter, muscle: muscle || undefined, page, limit: 24 })
         .then((data) => {
           setItems(data.items);
           setTotal(data.total);
@@ -1016,7 +1070,7 @@ export function ExercisesPage() {
         .catch(() => setStatus("error"));
     }, 160);
     return () => window.clearTimeout(timer);
-  }, [query, filter, page]);
+  }, [query, filter, muscle, page]);
 
   return (
     <div>
@@ -1101,170 +1155,6 @@ function ExerciseCard({ exercise, index, onSelect }: { exercise: Exercise; index
   );
 }
 
-export function ExerciseDetail({ exercise }: { exercise: Exercise }) {
-  const { user } = useAuth();
-  const { saveVideoUrl, videoUrlForExercise } = useUserData();
-  const [showGif, setShowGif] = useState(true);
-  const media = exerciseMediaProvider.resolve(exercise);
-  const [anatomeVideoUrl, setAnatomeVideoUrl] = useState<string | null>(null);
-  const [customVideoUrl, setCustomVideoUrl] = useState<string | null>(null);
-  const [videoInput, setVideoInput] = useState("");
-  const [saving, setSaving] = useState(false);
-
-  useEffect(() => {
-    let cancelled = false;
-
-    if (user?.uid) {
-      const remembered = videoUrlForExercise(exercise.id, exercise.name);
-      getExerciseMedia(user.uid, exercise.id)
-        .then((doc) => {
-          if (cancelled) return;
-          const saved = doc?.videoUrl?.trim() || remembered;
-          if (saved) {
-            setCustomVideoUrl(saved);
-            setVideoInput(saved);
-            setAnatomeVideoUrl(null);
-            return;
-          }
-          return anatomeResolveExercise(exercise.name).then((result) => {
-            if (!cancelled) setAnatomeVideoUrl(result.video_url ?? null);
-          });
-        })
-        .catch(() => {
-          if (!cancelled) setAnatomeVideoUrl(null);
-        });
-    } else {
-      anatomeResolveExercise(exercise.name)
-        .then((result) => {
-          if (!cancelled) setAnatomeVideoUrl(result.video_url ?? null);
-        })
-        .catch(() => {
-          if (!cancelled) setAnatomeVideoUrl(null);
-        });
-    }
-
-    return () => {
-      cancelled = true;
-    };
-  }, [exercise.id, exercise.name, user?.uid, videoUrlForExercise]);
-
-  const activeVideoUrl = customVideoUrl ?? exercise.videoUrl ?? videoUrlForExercise(exercise.id, exercise.name) ?? anatomeVideoUrl;
-  useCoachPage({
-    currentPage: "exercise",
-    currentExercise: { id: exercise.id, name: exercise.name },
-    hasFormVideo: Boolean(activeVideoUrl),
-  });
-  return (
-    <div className="exercise-detail">
-      <Link className="back-button" href="/exercises"><ArrowLeft size={17} /> Exercise library</Link>
-      <section className="detail-hero reveal">
-        <div className="detail-media">
-          {media.src ? (
-            <ExerciseStill
-              src={showGif ? media.src : media.poster ?? media.src}
-              alt={`${exercise.name} exercise demonstration`}
-              width={640}
-              height={520}
-            />
-          ) : (
-            <div className="custom-media-fallback large">Custom exercise</div>
-          )}
-          <div className="media-tabs">
-            <button className={showGif ? "active" : ""} onClick={() => setShowGif(true)}><Play size={14} /> {exercise.category === "custom" ? "GIF" : "Dataset GIF"}</button>
-            <button className={!showGif ? "active" : ""} onClick={() => setShowGif(false)}><Camera size={14} /> Thumbnail</button>
-          </div>
-          <small>{exercise.attribution}</small>
-          {exercise.category === "custom" && <CustomExerciseMediaEditor exercise={exercise} />}
-        </div>
-        <div className="detail-copy">
-          <span className="paper-tag">{exercise.category}</span>
-          <h1>{exercise.name}</h1>
-          <p>{exercise.instructions.en}</p>
-          <div className="detail-facts">
-            <div><span>Target</span><strong>{exercise.target}</strong></div>
-            <div><span>Secondary</span><strong>{exercise.secondary_muscles.join(", ") || "Stabilizers"}</strong></div>
-            <div><span>Equipment</span><strong>{exercise.equipment}</strong></div>
-          </div>
-          <ContextualAiActions
-            actions={[
-              { label: "Analyze my progress", prompt: `How am I progressing on ${exercise.name}? Use my logged sets.` },
-              { label: "Explain this exercise", prompt: `Explain ${exercise.name}: muscles, setup, and how it should feel. Use catalog data.` },
-              { label: "Find alternatives", prompt: `Find alternatives to ${exercise.name} from the catalog.` },
-              { label: "Improve my technique", prompt: `What technique mistakes should I avoid on ${exercise.name}? Do not claim you analyzed a video.` },
-            ]}
-          />
-          <div className="detail-actions">
-            <Link className="primary-button" href="/workouts"><Plus size={17} /> Add to workout</Link>
-            <div className="video-url-editor">
-              <label>
-                <span className="sr-only">Form video URL</span>
-                <input
-                  value={videoInput}
-                  onChange={(e) => setVideoInput(e.target.value)}
-                  placeholder="Paste YouTube URL"
-                />
-              </label>
-              <button
-                type="button"
-                className="outline-button"
-                onClick={async () => {
-                  const next = videoInput.trim();
-                  if (!next) return;
-                  setSaving(true);
-                  try {
-                    await saveVideoUrl(exercise.id, next);
-                    setCustomVideoUrl(next);
-                  } finally {
-                    setSaving(false);
-                  }
-                }}
-                disabled={!videoInput.trim() || saving}
-              >
-                <Video size={17} /> {saving ? "Saving…" : "Save URL"}
-              </button>
-            </div>
-          </div>
-          <p className="privacy-note"><ShieldCheck size={15} /> Your uploaded form videos stay private.</p>
-          {activeVideoUrl && (
-            <div className="video-preview">
-              <small>Your form video · loops in workouts</small>
-              <ExerciseDemoPlayer title={exercise.name} videoUrl={activeVideoUrl} label="Saved video" />
-            </div>
-          )}
-        </div>
-      </section>
-      <section className="detail-grid">
-        <article className="paper-panel">
-          <SectionTitle
-            eyebrow="Technique"
-            title="How to perform"
-            action={
-              <ContextualAiActions
-                actions={[
-                  { label: "Ask AI about this exercise", prompt: `How should I perform ${exercise.name}? What mistakes should I avoid, and what should I feel?` },
-                ]}
-              />
-            }
-          />
-          <ol className="instruction-list">
-            {(exercise.instruction_steps.en ?? []).map((step, index) => <li key={step}><span>{String(index + 1).padStart(2, "0")}</span><p>{step}</p></li>)}
-          </ol>
-        </article>
-        <article className="paper-panel history-snippet exercise-muscles-panel">
-          <SectionTitle eyebrow="Muscles" title="Where it works" />
-          <AnatomeExerciseMuscles
-            exerciseName={exercise.name}
-            target={exercise.target}
-            secondaryMuscles={exercise.secondary_muscles}
-          />
-          <div><strong>Primary</strong><span>{exercise.target}</span></div>
-          <div><strong>Secondary</strong><span>{exercise.secondary_muscles.join(" · ") || "None listed"}</span></div>
-          <div><strong>Body part</strong><span>{exercise.body_part}</span></div>
-        </article>
-      </section>
-    </div>
-  );
-}
 export function ActiveWorkout({ onExit, onComplete }: { onExit: () => void; onComplete: () => void }) {
   const { todaysWorkout, activeWorkout, activeSession, activeSessionLoaded } = useUserData();
   const sessionWorkout = todaysWorkout ?? activeWorkout;
@@ -1323,7 +1213,8 @@ function ActiveWorkoutSession({
   const defaultRest = profile?.defaultRest ?? 90;
   const initialSessions = sessionsForWorkout(workout, initialProgress, defaultRest);
   const initialIndex = Math.min(initialProgress?.exerciseIndex ?? 0, Math.max(0, workout.exercises.length - 1));
-  const [elapsed, setElapsed] = useState(initialProgress?.durationSeconds ?? 0);
+  const [startedAt] = useState(() => initialProgress?.startedAt ?? new Date().toISOString());
+  const [elapsed, setElapsed] = useState(() => elapsedSeconds(startedAt));
   const [exerciseIndex, setExerciseIndex] = useState(initialIndex);
   const [exerciseSessions, setExerciseSessions] = useState<ExerciseSession[]>(initialSessions);
   const [sets, setSets] = useState<SetLog[]>(() =>
@@ -1350,13 +1241,10 @@ function ActiveWorkoutSession({
   const [skipOpen, setSkipOpen] = useState(false);
   const [skipReason, setSkipReason] = useState<string | null>(null);
   const [skipBusy, setSkipBusy] = useState(false);
-  const [startedAt] = useState(() => initialProgress?.startedAt ?? new Date().toISOString());
   const [saving, setSaving] = useState(false);
   const [saveStatus, setSaveStatus] = useState<"idle" | "saving" | "saved" | "offline">("idle");
   const firstPersist = useRef(true);
-  const elapsedRef = useRef(elapsed);
   const startedAtRef = useRef(startedAt);
-  elapsedRef.current = elapsed;
   startedAtRef.current = startedAt;
 
   const exercise = workout.exercises[exerciseIndex];
@@ -1462,16 +1350,52 @@ function ActiveWorkoutSession({
     };
   }, [customExercises, user?.uid, videoUrlForExercise, viewed.exerciseId, viewed.name, viewed.videoUrl]);
 
-  useEffect(() => {
-    const timer = window.setInterval(() => setElapsed((value) => value + 1), 1000);
-    return () => window.clearInterval(timer);
-  }, []);
+  const restDeadlineRef = useRef<number | null>(null);
 
   useEffect(() => {
-    if (rest === null || paused || rest <= 0) return;
-    const timer = window.setInterval(() => setRest((value) => value === null ? null : Math.max(0, value - 1)), 1000);
-    return () => window.clearInterval(timer);
-  }, [rest, paused]);
+    const tick = () => setElapsed(elapsedSeconds(startedAtRef.current));
+    tick();
+    const timer = window.setInterval(tick, 1000);
+    const onWake = () => tick();
+    window.addEventListener("focus", onWake);
+    document.addEventListener("visibilitychange", onWake);
+    return () => {
+      window.clearInterval(timer);
+      window.removeEventListener("focus", onWake);
+      document.removeEventListener("visibilitychange", onWake);
+    };
+  }, []);
+
+  function beginRest(seconds: number) {
+    restDeadlineRef.current = Date.now() + seconds * 1000;
+    setPaused(false);
+    setRest(seconds);
+  }
+
+  function clearRest() {
+    restDeadlineRef.current = null;
+    setRest(null);
+    setPaused(false);
+  }
+
+  useEffect(() => {
+    if (rest === null || paused) return;
+    const tick = () => {
+      const deadline = restDeadlineRef.current;
+      if (deadline == null) return;
+      setRest(Math.max(0, Math.round((deadline - Date.now()) / 1000)));
+    };
+    tick();
+    const timer = window.setInterval(tick, 250);
+    const onWake = () => tick();
+    window.addEventListener("focus", onWake);
+    document.addEventListener("visibilitychange", onWake);
+    return () => {
+      window.clearInterval(timer);
+      window.removeEventListener("focus", onWake);
+      document.removeEventListener("visibilitychange", onWake);
+    };
+  }, [rest === null, paused]);
 
   const persistSnapshot = useCallback(async (nextSessions: ExerciseSession[], index: number) => {
     const silent = firstPersist.current;
@@ -1482,7 +1406,7 @@ function ActiveWorkoutSession({
         workoutName: workout.name,
         focus: workout.focus,
         startedAt: startedAtRef.current,
-        durationSeconds: elapsedRef.current,
+        durationSeconds: elapsedSeconds(startedAtRef.current),
         exerciseIndex: index,
         exerciseSessions: stampExerciseSessions(workout.exercises, nextSessions),
       });
@@ -1528,8 +1452,7 @@ function ActiveWorkoutSession({
     const nextSets = sets.map((set) => set.id === id ? { ...set, completed: nextCompleted ?? false } : set);
     applySets(nextSets, true);
     if (nextCompleted && profile?.autoStartRest !== false) {
-      setRest(exercise.restSeconds || defaultRest);
-      setPaused(false);
+      beginRest(exercise.restSeconds || defaultRest);
     }
   };
 
@@ -1544,10 +1467,12 @@ function ActiveWorkoutSession({
 
   const finishWorkout = async () => {
     persistDebounced.cancel();
+    const completedAt = new Date().toISOString();
+    const durationSeconds = elapsedSeconds(startedAt, completedAt) || elapsed;
     const pending: PendingSession = {
       workout,
       startedAt,
-      durationSeconds: elapsed,
+      durationSeconds,
       exerciseSessions: stampExerciseSessions(
         workout.exercises,
         withCurrentSets(exerciseSessions, exerciseIndex, sets),
@@ -1562,14 +1487,14 @@ function ActiveWorkoutSession({
         workoutName: workout.name,
         focus: workout.focus,
         startedAt,
-        completedAt: new Date().toISOString(),
-        durationSeconds: elapsed,
+        completedAt,
+        durationSeconds,
         exerciseSessions: pending.exerciseSessions,
       };
       storeSessionSummary({
         workoutName: workout.name,
         focus: workout.focus,
-        durationSeconds: elapsed,
+        durationSeconds,
         setCount: sessionSetCount(tempSession),
         volume: sessionVolume(tempSession),
         exerciseCount: workout.exercises.length,
@@ -1597,7 +1522,7 @@ function ActiveWorkoutSession({
         ? nextSession.sets
         : defaultSets(3, workout.exercises[nextIndex].restSeconds || defaultRest),
     );
-    setRest(null);
+    clearRest();
     setAltSource("primary");
     void persistSnapshot(synced, nextIndex);
     window.scrollTo({ top: 0, behavior: "smooth" });
@@ -1623,10 +1548,12 @@ function ActiveWorkoutSession({
 
       const nextIndex = exerciseIndex + 1;
       if (exerciseIndex >= workout.exercises.length - 1) {
+        const completedAt = new Date().toISOString();
+        const durationSeconds = elapsedSeconds(startedAt, completedAt) || elapsed;
         const pending: PendingSession = {
           workout,
           startedAt,
-          durationSeconds: elapsed,
+          durationSeconds,
           exerciseSessions: stampExerciseSessions(workout.exercises, nextSessions),
         };
         setSaving(true);
@@ -1638,14 +1565,14 @@ function ActiveWorkoutSession({
             workoutName: workout.name,
             focus: workout.focus,
             startedAt,
-            completedAt: new Date().toISOString(),
-            durationSeconds: elapsed,
+            completedAt,
+            durationSeconds,
             exerciseSessions: pending.exerciseSessions,
           };
           storeSessionSummary({
             workoutName: workout.name,
             focus: workout.focus,
-            durationSeconds: elapsed,
+            durationSeconds,
             setCount: sessionSetCount(tempSession),
             volume: sessionVolume(tempSession),
             exerciseCount: workout.exercises.length,
@@ -1666,7 +1593,7 @@ function ActiveWorkoutSession({
           ? nextSession.sets
           : defaultSets(3, workout.exercises[nextIndex].restSeconds || defaultRest),
       );
-      setRest(null);
+      clearRest();
       setAltSource("primary");
       await persistSnapshot(nextSessions, nextIndex);
       window.scrollTo({ top: 0, behavior: "smooth" });
@@ -1690,7 +1617,7 @@ function ActiveWorkoutSession({
         ? prevSession.sets
         : defaultSets(3, workout.exercises[prevIndex].restSeconds || defaultRest),
     );
-    setRest(null);
+    clearRest();
     setAltSource("primary");
     void persistSnapshot(synced, prevIndex);
     window.scrollTo({ top: 0, behavior: "smooth" });
@@ -1807,7 +1734,7 @@ function ActiveWorkoutSession({
             </div>
             <button className="add-set" onClick={addSet}><Plus size={18} /> Add set</button>
             <div className="workout-tools">
-              <button onClick={() => setRest(exercise.restSeconds || defaultRest)}><Timer size={18} /> Rest timer</button>
+              <button onClick={() => beginRest(exercise.restSeconds || defaultRest)}><Timer size={18} /> Rest timer</button>
               <button
                 type="button"
                 className="outline-button"
@@ -1836,16 +1763,31 @@ function ActiveWorkoutSession({
       {rest !== null && (
         <div className="rest-overlay" role="dialog" aria-modal="true" aria-label="Rest timer">
           <div className="rest-card">
-            <button className="rest-close" onClick={() => setRest(null)} aria-label="Close timer"><X size={19} /></button>
+            <button className="rest-close" onClick={clearRest} aria-label="Close timer"><X size={19} /></button>
             <span className="eyebrow">Rest · {exercise.name}</span>
             <div className="rest-ring" style={{ "--progress": `${(rest / (exercise.restSeconds || defaultRest)) * 360}deg` } as React.CSSProperties}>
               <div><strong>{formatTime(rest)}</strong><span>{paused ? "Paused" : rest === 0 ? "Ready" : "Breathe"}</span></div>
             </div>
             <DumbbellDoodle className="rest-doodle" />
             <div className="rest-actions">
-              <button onClick={() => setPaused(!paused)}>{paused ? <Play size={18} /> : <Pause size={18} />} {paused ? "Resume" : "Pause"}</button>
-              <button onClick={() => setRest((value) => (value ?? 0) + 30)}><Plus size={18} /> 30 sec</button>
-              <button onClick={() => setRest(null)}><SkipForward size={18} /> Skip</button>
+              <button onClick={() => {
+                if (paused) {
+                  restDeadlineRef.current = Date.now() + (rest ?? 0) * 1000;
+                  setPaused(false);
+                  return;
+                }
+                const left = restDeadlineRef.current
+                  ? Math.max(0, Math.round((restDeadlineRef.current - Date.now()) / 1000))
+                  : (rest ?? 0);
+                restDeadlineRef.current = null;
+                setRest(left);
+                setPaused(true);
+              }}>{paused ? <Play size={18} /> : <Pause size={18} />} {paused ? "Resume" : "Pause"}</button>
+              <button onClick={() => {
+                if (restDeadlineRef.current) restDeadlineRef.current += 30_000;
+                setRest((value) => (value ?? 0) + 30);
+              }}><Plus size={18} /> 30 sec</button>
+              <button onClick={clearRest}><SkipForward size={18} /> Skip</button>
             </div>
           </div>
         </div>
@@ -1971,44 +1913,23 @@ export function MusclesPage() {
   const [view, setView] = useState<"front" | "back">("front");
   const [selected, setSelected] = useState("—");
   const exerciseNames = activeWorkout?.exercises.map((item) => item.name) ?? [];
+  const notebook = resolveAnatomyPlate(selected) ?? FULL_BODY_PLATE;
   useCoachPage({
     currentPage: "muscles",
     currentWorkout: activeWorkout ? { id: activeWorkout.id, name: activeWorkout.name, focus: activeWorkout.focus } : null,
     selectedMuscle: selected === "—" ? null : selected,
   });
 
-  if (exerciseNames.length === 0) {
-    return (
-      <div>
-      <PageIntro
-        eyebrow="Muscle intelligence"
-        title="See the work."
-        copy="Anatome maps muscles from your active workout exercises."
-        action={
-          <ContextualAiActions
-            actions={[
-              { label: "Analyze muscle balance", prompt: "Which muscle am I neglecting? Use my last 4 weeks of volume." },
-              { label: "What should I train next?", prompt: "What should I train next based on muscle volume and recovery?" },
-            ]}
-          />
-        }
-      />
-        <div className="empty-state reveal delay-1">
-          <DumbbellDoodle />
-          <h3>No exercises to map</h3>
-          <p>Add exercises to your active workout to see muscle impact.</p>
-          <Link className="primary-button" href="/workouts">Edit workout</Link>
-        </div>
-      </div>
-    );
-  }
-
   return (
     <div>
       <PageIntro
         eyebrow="Muscle intelligence"
         title="See the work."
-        copy="Anatome renders your active workout onto a real anatomical map."
+        copy={
+          exerciseNames.length
+            ? "Anatome paints today's workout. Open a notebook plate to study the muscle."
+            : "Read the physique notebook in order: system maps, then each muscle breakdown."
+        }
         action={
           <ContextualAiActions
             actions={[
@@ -2018,198 +1939,43 @@ export function MusclesPage() {
           />
         }
       />
-      <section className="muscle-page-grid">
-        <article className="body-stage reveal delay-1">
-          <div className="view-toggle"><button className={view === "front" ? "active" : ""} onClick={() => setView("front")}>Front</button><button className={view === "back" ? "active" : ""} onClick={() => setView("back")}>Back</button></div>
-          <AnatomeMuscleImpact
-            exerciseNames={exerciseNames}
-            view={view}
-            gender="male"
-            variant="stage"
-            onSelectMuscle={(_slug, label) => setSelected(label)}
-          />
-          <span className="body-annotation">powered by<br />api.anatome.dev ↘</span>
-        </article>
-        <aside className="muscle-panel reveal delay-2">
-          <span className="eyebrow">Selected muscle</span>
-          <h2>{selected}</h2>
-          <p>From {activeWorkout?.name ?? "your workout"} via Anatome.</p>
-          <AnatomeMuscleImpact
-            exerciseNames={exerciseNames}
-            view={view}
-            gender="male"
-            variant="card"
-            onSelectMuscle={(_slug, label) => setSelected(label)}
-          />
-        </aside>
+      {exerciseNames.length > 0 ? (
+        <section className="muscle-page-grid">
+          <article className="body-stage reveal delay-1">
+            <div className="view-toggle"><button className={view === "front" ? "active" : ""} onClick={() => setView("front")}>Front</button><button className={view === "back" ? "active" : ""} onClick={() => setView("back")}>Back</button></div>
+            <AnatomeMuscleImpact
+              exerciseNames={exerciseNames}
+              view={view}
+              gender="male"
+              variant="stage"
+              onSelectMuscle={(_slug, label) => setSelected(label)}
+            />
+            <span className="body-annotation">powered by<br />api.anatome.dev ↘</span>
+          </article>
+          <aside className="muscle-panel reveal delay-2">
+            <span className="eyebrow">Notebook</span>
+            <h2>{notebook.label}</h2>
+            <p>{selected === "—" ? `From ${activeWorkout?.name ?? "your workout"}. Tap a muscle to open its plate.` : notebook.blurb}</p>
+            <AnatomyPlate plate={notebook} variant="compact" />
+            <AnatomeMuscleImpact
+              exerciseNames={exerciseNames}
+              view={view}
+              gender="male"
+              variant="card"
+              onSelectMuscle={(_slug, label) => setSelected(label)}
+            />
+          </aside>
+        </section>
+      ) : (
+        <div className="anatomy-empty-note reveal">
+          <p>No active workout to map. Study the plates, then <Link href="/workouts">add exercises</Link>.</p>
+        </div>
+      )}
+      <section className="anatomy-atlas-block reveal delay-1">
+        <SectionTitle eyebrow="Physique notebook" title="Maps, then breakdowns." />
+        <AnatomyAtlas />
       </section>
     </div>
-  );
-}
-
-function sessionStamp(iso: string) {
-  return new Intl.DateTimeFormat("en-US", {
-    weekday: "short",
-    month: "short",
-    day: "numeric",
-    hour: "numeric",
-    minute: "2-digit",
-  }).format(new Date(iso));
-}
-
-function HistorySessionCard({
-  session,
-  workouts,
-}: {
-  session: StoredSession;
-  workouts: StoredWorkout[];
-}) {
-  const { videoUrlForExercise, saveVideoUrl, patchWorkout } = useUserData();
-  const inProgress = session.id.startsWith("in-progress:");
-  const workout = workouts.find((item) => item.id === session.workoutDayId);
-  const [previewIndex, setPreviewIndex] = useState<number | null>(null);
-  const lifts = session.exerciseSessions.flatMap((exerciseSession) => {
-    const sets = exerciseSession.sets.filter((set) => workingSet(set));
-    if (sets.length === 0) return [];
-    const planned = workout?.exercises.find((item) => item.id === exerciseSession.workoutExerciseId);
-    const best = sets.reduce((lead, set) => (
-      set.weight > lead.weight || (set.weight === lead.weight && set.reps > lead.reps) ? set : lead
-    ));
-    return [{
-      id: exerciseSession.id,
-      name: exerciseLabel(session, exerciseSession, workouts),
-      target: planned?.target,
-      sets,
-      best,
-      volume: sets.reduce((total, set) => total + set.weight * set.reps, 0),
-      planned,
-    }];
-  });
-  const previewExercises = (workout?.exercises.length
-    ? workout.exercises.map((item) => {
-        const logged = session.exerciseSessions.find((row) => row.workoutExerciseId === item.id);
-        return {
-          ...item,
-          videoUrl: item.videoUrl || videoUrlForExercise(item.exerciseId, item.name),
-          loggedSets: logged?.sets.filter((set) => workingSet(set)).map((set) => ({
-            id: set.id,
-            weight: set.weight,
-            reps: set.reps,
-            rir: set.rir,
-          })),
-        };
-      })
-    : lifts.map((lift) => ({
-        id: lift.id,
-        exerciseId: lift.planned?.exerciseId ?? lift.id,
-        name: lift.name,
-        target: lift.target ?? "other",
-        secondary: lift.planned?.secondary ?? [],
-        prescription: lift.planned?.prescription ?? `${lift.sets.length} × ${lift.best.reps}`,
-        restSeconds: lift.planned?.restSeconds ?? 90,
-        videoUrl: lift.planned?.videoUrl || videoUrlForExercise(lift.planned?.exerciseId ?? lift.id, lift.name),
-        gifUrl: lift.planned?.gifUrl,
-        imageUrl: lift.planned?.imageUrl,
-        loggedSets: lift.sets.map((set) => ({ id: set.id, weight: set.weight, reps: set.reps, rir: set.rir })),
-      }))
-  );
-
-  return (
-    <>
-    <article className={`session-detail reveal delay-2 ${inProgress ? "is-live" : ""}`}>
-      <DumbbellDoodle className="session-doodle" />
-      <div className="session-detail-top">
-        <span className={`session-status ${inProgress ? "live" : ""}`}>
-          {inProgress ? <Zap size={13} fill="currentColor" /> : <Check size={13} />}
-          {inProgress ? "In progress" : sessionStamp(sessionDate(session))}
-        </span>
-        {previewExercises.length > 0 && (
-          <button type="button" className="session-view-day" onClick={() => setPreviewIndex(0)}>
-            <Eye size={15} /> View day
-          </button>
-        )}
-      </div>
-      <h2>{session.workoutName}</h2>
-      <p>{session.focus || "Logged session"}</p>
-      <Scribble className="session-scribble" />
-      <div className="session-stats">
-        <span>
-          <Timer size={16} />
-          <strong>{Math.max(1, Math.round(session.durationSeconds / 60))}</strong>
-          min
-        </span>
-        <span>
-          <Weight size={16} />
-          <strong>{formatVolume(sessionVolume(session))}</strong>
-          kg volume
-        </span>
-        <span>
-          <Flame size={16} />
-          <strong>{sessionSetCount(session)}</strong>
-          sets
-        </span>
-      </div>
-      <div className="session-lifts">
-        {lifts.length === 0 && (
-          <p className="session-empty-lifts">No working sets logged in this session yet.</p>
-        )}
-        {lifts.map((lift, index) => {
-          const previewAt = previewExercises.findIndex((item) => item.id === lift.planned?.id || item.name === lift.name);
-          return (
-          <div key={lift.id}>
-            <header>
-              <em>{String(index + 1).padStart(2, "0")}</em>
-              <div>
-                <strong>{lift.name}</strong>
-                <small>
-                  {lift.target ? <span>{lift.target}</span> : null}
-                  <span>{formatVolume(lift.volume)} kg</span>
-                </small>
-              </div>
-              <button
-                type="button"
-                className="session-view-lift"
-                onClick={() => setPreviewIndex(previewAt >= 0 ? previewAt : index)}
-              >
-                <Eye size={14} /> View
-              </button>
-            </header>
-            <div className="session-set-chips">
-              {lift.sets.map((set) => {
-                const isBest = set.id === lift.best.id;
-                return (
-                  <b key={set.id} className={isBest ? "best" : ""}>
-                    {isBest && <Trophy size={11} />}
-                    {formatLoad(set.weight, set.reps)}
-                  </b>
-                );
-              })}
-            </div>
-          </div>
-          );
-        })}
-      </div>
-    </article>
-    {previewIndex !== null && previewExercises.length > 0 && (
-      <WorkoutDayPreview
-        workoutName={session.workoutName}
-        focus={session.focus}
-        exercises={previewExercises}
-        startIndex={previewIndex}
-        onClose={() => setPreviewIndex(null)}
-        onSaveVideo={(exerciseId, url) => {
-          if (url) void saveVideoUrl(exerciseId, url);
-        }}
-        onUpdateExercise={workout ? async (workoutExerciseId, patch) => {
-          await patchWorkout(workout.id, {
-            exercises: workout.exercises.map((item) => (
-              item.id === workoutExerciseId ? { ...item, ...patch } : item
-            )),
-          });
-        } : undefined}
-      />
-    )}
-    </>
   );
 }
 
@@ -2234,8 +2000,19 @@ export function HistoryPage() {
   const daySessions = selectedDay
     ? monthSessions.filter((session) => new Date(sessionDate(session)).getDate() === selectedDay)
     : monthSessions.slice(0, 1);
-  const selectedSession = daySessions.find((session) => session.id === pickedSessionId) ?? daySessions[0];
-  const highlightDay = selectedDay ?? (selectedSession ? new Date(sessionDate(selectedSession)).getDate() : null);
+  const pickedSession = pickedSessionId
+    ? completed.find((session) => session.id === pickedSessionId)
+    : null;
+  const selectedSession = (pickedSession && monthSessions.some((session) => session.id === pickedSession.id)
+    ? pickedSession
+    : null) ?? daySessions.find((session) => session.id === pickedSessionId) ?? daySessions[0];
+  const highlightDay = selectedSession
+    ? new Date(sessionDate(selectedSession)).getDate()
+    : selectedDay;
+
+  useEffect(() => {
+    if (selectedSession && !pickedSessionId) setPickedSessionId(selectedSession.id);
+  }, [pickedSessionId, selectedSession]);
 
   if (completed.length === 0) {
     return (
@@ -2355,9 +2132,11 @@ export function AnalyticsPage() {
   const completed = loggedSessions(sessions, activeSession);
   const week = weeklyStats(completed);
   const volumeSeries = weeklyVolumeSeries(completed, 8);
+  const dailySets = dailySetsSeries(completed, 14);
+  const dailyMinutes = dailyDurationSeries(completed, 14);
   const totalVolume = completed.reduce((total, session) => total + sessionVolume(session), 0);
   const avgDuration = completed.length
-    ? Math.round(completed.reduce((total, session) => total + session.durationSeconds, 0) / completed.length / 60)
+    ? Math.round(completed.reduce((total, session) => total + sessionDurationSeconds(session), 0) / completed.length / 60)
     : 0;
   const lifts = exerciseStats(completed, workouts);
   useCoachPage({ currentPage: "analytics" });
@@ -2409,6 +2188,28 @@ export function AnalyticsPage() {
         <article><span>Total volume</span><strong>{formatVolume(totalVolume)} <i>kg</i></strong><small>all time</small></article>
         <article><span>Avg. duration</span><strong>{avgDuration} <i>min</i></strong><small>per session</small></article>
         <article><span>This week</span><strong>{week.sessions}</strong><small>{formatVolume(week.volume)} kg volume</small></article>
+      </section>
+      <section className="analytics-grid analytics-daily">
+        <article className="volume-card paper-panel reveal">
+          <SectionTitle eyebrow="Each day" title="Time trained" />
+          <AreaChart
+            points={dailyMinutes}
+            color="var(--blue)"
+            unit="min"
+            callout="min today"
+            formatValue={(value) => String(value)}
+          />
+        </article>
+        <article className="volume-card paper-panel reveal delay-1">
+          <SectionTitle eyebrow="Each day" title="Sets done" />
+          <AreaChart
+            points={dailySets}
+            color="var(--orange)"
+            unit="sets"
+            callout="sets today"
+            formatValue={(value) => String(value)}
+          />
+        </article>
       </section>
       <section className="analytics-grid">
         <article className="volume-card paper-panel reveal">

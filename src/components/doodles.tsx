@@ -95,7 +95,7 @@ export function MiniChart({ values, color = "var(--lime)" }: { values: number[];
     }
   }
   return (
-    <svg className="mini-chart" viewBox="0 0 100 44" preserveAspectRatio="none" aria-hidden="true">
+    <svg className="mini-chart" viewBox="0 0 100 44" aria-hidden="true">
       <defs>
         <linearGradient id={`mini-${id}`} x1="0" y1="0" x2="0" y2="1">
           <stop offset="0%" stopColor={color} stopOpacity="0.38" />

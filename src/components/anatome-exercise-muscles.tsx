@@ -27,10 +27,12 @@ export function AnatomeExerciseMuscleThumb({
   exerciseName,
   target,
   secondaryMuscles,
+  alt,
 }: {
   exerciseName: string;
   target: string;
   secondaryMuscles: string[];
+  alt?: string;
 }) {
   const primary = uniqueSlugs([target]);
   const secondary = uniqueSlugs(secondaryMuscles);
@@ -45,7 +47,7 @@ export function AnatomeExerciseMuscleThumb({
   return (
     <div className="anatome-thumb">
       {/* eslint-disable-next-line @next/next/no-img-element */}
-      <img src={src} alt={`${exerciseName} muscle map`} loading="lazy" />
+      <img src={src} alt={alt ?? `${exerciseName} muscle map`} loading="lazy" />
     </div>
   );
 }

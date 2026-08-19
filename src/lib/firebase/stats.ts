@@ -44,7 +44,33 @@ export function displayRecordValue(value: string) {
 }
 
 export function sessionDate(session: StoredSession) {
-  return session.completedAt ?? session.startedAt;
+  return session.startedAt;
+}
+
+export function elapsedSeconds(startedAt: string, endedAt?: string | number | Date) {
+  const start = new Date(startedAt).getTime();
+  const end = endedAt == null
+    ? Date.now()
+    : typeof endedAt === "number"
+      ? endedAt
+      : new Date(endedAt).getTime();
+  if (!Number.isFinite(start) || !Number.isFinite(end) || end < start) return 0;
+  return Math.max(0, Math.round((end - start) / 1000));
+}
+
+export function sessionDurationSeconds(session: {
+  id?: string;
+  startedAt: string;
+  completedAt?: string;
+  durationSeconds: number;
+}) {
+  if (session.completedAt) {
+    return elapsedSeconds(session.startedAt, session.completedAt) || session.durationSeconds;
+  }
+  if (session.id?.startsWith("in-progress:")) {
+    return elapsedSeconds(session.startedAt) || session.durationSeconds;
+  }
+  return session.durationSeconds;
 }
 
 export function sessionsThisWeek(sessions: StoredSession[]) {
@@ -242,7 +268,7 @@ export function weeklyStats(sessions: StoredSession[]) {
   const weekSessions = sessionsThisWeek(sessions);
   const volume = weekSessions.reduce((total, session) => total + sessionVolume(session), 0);
   const sets = weekSessions.reduce((total, session) => total + sessionSetCount(session), 0);
-  const trainingSeconds = weekSessions.reduce((total, session) => total + session.durationSeconds, 0);
+  const trainingSeconds = weekSessions.reduce((total, session) => total + sessionDurationSeconds(session), 0);
   return {
     sessions: weekSessions.length,
     volume,
@@ -390,6 +416,39 @@ export function weekdaySessionCounts(sessions: StoredSession[]): SeriesPoint[] {
   });
 }
 
+function dailyBuckets(
+  sessions: StoredSession[],
+  days: number,
+  valueOf: (session: StoredSession) => number,
+): SeriesPoint[] {
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const points: SeriesPoint[] = [];
+  for (let i = days - 1; i >= 0; i -= 1) {
+    const day = new Date(today);
+    day.setDate(today.getDate() - i);
+    const value = sessions.reduce((total, session) => (
+      isSameDay(new Date(sessionDate(session)), day) ? total + valueOf(session) : total
+    ), 0);
+    const label = i === 0
+      ? "Today"
+      : day.getDate() === 1 || i === days - 1
+        ? new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric" }).format(day)
+        : String(day.getDate());
+    points.push({ label, value });
+  }
+  return points;
+}
+
+export function dailySetsSeries(sessions: StoredSession[], days = 14): SeriesPoint[] {
+  return dailyBuckets(sessions, days, sessionSetCount);
+}
+
+export function dailyDurationSeries(sessions: StoredSession[], days = 14): SeriesPoint[] {
+  return dailyBuckets(sessions, days, (session) => sessionDurationSeconds(session) / 60)
+    .map((point) => ({ ...point, value: Math.round(point.value) }));
+}
+
 function plannedExercise(
   session: StoredSession,
   exerciseSession: ExerciseSession,
@@ -435,7 +494,7 @@ export function weeklyDurationSeries(sessions: StoredSession[], weeks = 8): Seri
         const date = new Date(sessionDate(session));
         return date >= weekStart && date < weekEnd;
       })
-      .reduce((total, session) => total + session.durationSeconds, 0);
+      .reduce((total, session) => total + sessionDurationSeconds(session), 0);
     points.push({
       label: i === 0 ? "Now" : new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric" }).format(weekStart),
       value: Math.round(minutes / 60),

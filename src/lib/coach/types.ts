@@ -148,11 +148,17 @@ export type CoachBlock =
       secondary?: string[];
       equipment?: string;
       prescription?: string;
+      bodyPart?: string;
+      instructions?: string[];
+      gifUrl?: string;
+      imageUrl?: string;
+      videoUrl?: string;
     }
   | {
       type: "muscle_map";
       title?: string;
       exerciseNames: string[];
+      bodyParts?: string[];
       muscles?: Array<{ name: string; sets: number; status?: string }>;
     }
   | {
@@ -198,7 +204,20 @@ export type CoachMessage = {
   role: "user" | "assistant";
   text: string;
   blocks: CoachBlock[];
+  createdAt?: string;
 };
+
+export type StoredCoachThread = {
+  id: string;
+  title: string;
+  preview: string;
+  createdAt: string;
+  updatedAt: string;
+  messages: CoachMessage[];
+  contents: CoachContent[];
+};
+
+export type CoachThreadSummary = Pick<StoredCoachThread, "id" | "title" | "preview" | "createdAt" | "updatedAt">;
 
 export type CoachChatRequest = {
   contents: CoachContent[];
@@ -230,6 +249,7 @@ export const TOOL_THINKING: Record<string, string> = {
   get_current_program: "Checking your current program…",
   get_exercise: "Looking up this exercise…",
   search_exercises: "Searching the exercise library…",
+  show_body_map: "Mapping that muscle…",
   get_exercise_history: "Reviewing this lift’s history…",
   get_personal_records: "Checking your personal records…",
   get_muscle_volume: "Comparing your muscle volume…",

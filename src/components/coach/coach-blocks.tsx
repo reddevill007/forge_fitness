@@ -2,41 +2,102 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Check, Trophy, X } from "lucide-react";
+import {
+  Activity,
+  AlertCircle,
+  ArrowUpRight,
+  Check,
+  Dumbbell,
+  Star,
+  TrendingUp,
+  Utensils,
+  X,
+} from "lucide-react";
+import { useEffect, useId, useState } from "react";
+import { AnatomeExerciseMuscleThumb } from "@/src/components/anatome-exercise-muscles";
 import { AnatomeMuscleImpact } from "@/src/components/anatome-muscle-impact";
-import { MiniChart } from "@/src/components/doodles";
+import { ExerciseDemoPlayer } from "@/src/components/exercise-demo-player";
+import { ExerciseStill } from "@/src/components/exercise-still";
+import { FocusMuscleMap } from "@/src/components/focus-muscle-map";
+import { anatomeResolveExercise } from "@/src/lib/anatome";
+import { resolveDatasetMedia } from "@/src/lib/dataset-media";
+import { fetchExercise } from "@/src/lib/exercises-client";
 import { useCoach } from "@/src/lib/coach/context";
-import { formatLoad, formatLoggedValue } from "@/src/lib/firebase/stats";
+import { useUserData } from "@/src/lib/firebase/user-data-context";
 import type { CoachAction, CoachBlock, PendingWrite, WorkoutPreviewExercise } from "@/src/lib/coach/types";
 
-function Chart({ points, color = "var(--lime)" }: { points: Array<{ label: string; value: number }>; color?: string }) {
-  const values = points.map((point) => point.value);
-  const max = Math.max(...values, 1);
+function LineChart({ points, color = "var(--lime)" }: { points: Array<{ label: string; value: number }>; color?: string }) {
+  const id = useId().replace(/:/g, "");
+  if (points.length === 0) return null;
+  const width = 320;
+  const height = 128;
+  const padX = 8;
+  const padY = 14;
+  const max = Math.max(...points.map((point) => point.value), 1);
+  const min = Math.min(...points.map((point) => point.value), 0);
+  const span = max - min || 1;
+  const coords = points.map((point, index) => ({
+    x: padX + (index / Math.max(points.length - 1, 1)) * (width - padX * 2),
+    y: height - padY - ((point.value - min) / span) * (height - padY * 2),
+    label: point.label,
+    value: point.value,
+  }));
+  const last = coords.at(-1) ?? coords[0];
+  const peak = coords.reduce((best, point) => (point.value > best.value ? point : best), coords[0]);
+  const line = coords.map((point, index) => `${index ? "L" : "M"}${point.x} ${point.y}`).join(" ");
+  const area = `${line} L${last.x} ${height - padY} L${coords[0].x} ${height - padY} Z`;
+
   return (
     <div className="coach-chart">
-      <MiniChart values={values} color={color} />
-      <div className="coach-chart-bars">
+      <svg viewBox={`0 0 ${width} ${height}`} role="img" aria-label="Progress chart">
+        <defs>
+          <linearGradient id={`fill-${id}`} x1="0" x2="0" y1="0" y2="1">
+            <stop offset="0%" stopColor={color} stopOpacity="0.42" />
+            <stop offset="100%" stopColor={color} stopOpacity="0" />
+          </linearGradient>
+        </defs>
+        <path d={area} fill={`url(#fill-${id})`} />
+        <path d={line} fill="none" stroke={color} strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round" />
+        <circle cx={peak.x} cy={peak.y} r="4.2" fill={color} stroke="var(--paper-2)" strokeWidth="2" />
+      </svg>
+      <div className="coach-chart-axis">
         {points.map((point) => (
-          <div key={point.label}>
-            <i style={{ height: `${Math.max(8, Math.round((point.value / max) * 100))}%` }} />
-            <span>{point.label}</span>
-          </div>
+          <span key={point.label}>{point.label}</span>
         ))}
       </div>
     </div>
   );
 }
 
-function ActionRow({ items }: { items: CoachAction[] }) {
+function chipIcon(label: string) {
+  const key = label.toLowerCase();
+  if (key.includes("workout") || key.includes("session") || key.includes("create")) return Dumbbell;
+  if (key.includes("progress") || key.includes("pr") || key.includes("strong")) return TrendingUp;
+  if (key.includes("muscle") || key.includes("gap")) return Activity;
+  if (key.includes("eat") || key.includes("nutrition") || key.includes("calorie")) return Utensils;
+  if (key.includes("open") || key.includes("view") || key.includes("start")) return ArrowUpRight;
+  return Activity;
+}
+
+export function CoachChipRow({
+  items,
+  onPrompt,
+}: {
+  items: CoachAction[];
+  onPrompt?: (prompt: string) => void;
+}) {
   const coach = useCoach();
   const router = useRouter();
   if (!items.length) return null;
   return (
     <div className="coach-actions">
       {items.map((item) => {
+        const Icon = chipIcon(item.label);
+        const className = "coach-chip";
         if (item.kind === "navigate" && item.href) {
           return (
-            <Link key={item.id} className="outline-button" href={item.href}>
+            <Link key={item.id} className={className} href={item.href}>
+              <span className="coach-chip-icon"><Icon size={14} /></span>
               {item.label}
             </Link>
           );
@@ -45,12 +106,16 @@ function ActionRow({ items }: { items: CoachAction[] }) {
           <button
             key={item.id}
             type="button"
-            className="outline-button"
+            className={className}
             onClick={() => {
-              if (item.kind === "prompt" && item.prompt) void coach?.ask(item.prompt);
+              if (item.kind === "prompt" && item.prompt) {
+                if (onPrompt) onPrompt(item.prompt);
+                else void coach?.ask(item.prompt);
+              }
               if (item.kind === "navigate" && item.href) router.push(item.href);
             }}
           >
+            <span className="coach-chip-icon"><Icon size={14} /></span>
             {item.label}
           </button>
         );
@@ -59,20 +124,58 @@ function ActionRow({ items }: { items: CoachAction[] }) {
   );
 }
 
+function ActionRow({ items }: { items: CoachAction[] }) {
+  return <CoachChipRow items={items} />;
+}
+
+function Stars({ score }: { score: number }) {
+  const filled = Math.max(0, Math.min(5, Math.round((score / 10) * 10) / 2));
+  return (
+    <span className="coach-stars" aria-label={`${filled} out of 5 stars`}>
+      {Array.from({ length: 5 }, (_, index) => (
+        <Star
+          key={index}
+          size={16}
+          fill={index + 1 <= filled ? "var(--lime)" : "transparent"}
+          color={index + 0.5 <= filled ? "var(--lime-dark)" : "var(--line-strong)"}
+        />
+      ))}
+    </span>
+  );
+}
+
+function ExerciseThumb({ exerciseId, name }: { exerciseId?: string; name: string }) {
+  const [src, setSrc] = useState<string | null>(null);
+  useEffect(() => {
+    if (!exerciseId) return;
+    let cancelled = false;
+    fetchExercise(exerciseId)
+      .then((exercise) => {
+        if (cancelled || !exercise) return;
+        const next = resolveDatasetMedia(exercise.gif_url) || resolveDatasetMedia(exercise.image);
+        if (next) setSrc(next);
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, [exerciseId]);
+
+  if (!src) return <span className="coach-ex-thumb is-fallback">{name.slice(0, 1).toUpperCase()}</span>;
+  return <ExerciseStill className="coach-ex-thumb" src={src} alt="" width={52} height={52} />;
+}
+
 function ExerciseList({ exercises }: { exercises: WorkoutPreviewExercise[] }) {
   return (
     <ol className="coach-exercise-list">
       {exercises.map((exercise, index) => (
         <li key={`${exercise.name}-${index}`}>
-          <span>{String(index + 1).padStart(2, "0")}</span>
+          <ExerciseThumb exerciseId={exercise.exerciseId} name={exercise.name} />
           <div>
-            <strong>{exercise.name}</strong>
-            <small>
-              {exercise.prescription}
-              {exercise.restSeconds ? ` · rest ${exercise.restSeconds >= 60 ? `${Math.round(exercise.restSeconds / 60)} min` : `${exercise.restSeconds}s`}` : ""}
-              {exercise.target ? ` · ${exercise.target}` : ""}
-            </small>
+            <strong>{index + 1}. {exercise.name}</strong>
+            {exercise.target ? <small>{exercise.target}</small> : null}
           </div>
+          <em>{exercise.prescription}</em>
         </li>
       ))}
     </ol>
@@ -102,39 +205,127 @@ function Confirmation({ write, title, summary }: { write: PendingWrite; title: s
   );
 }
 
+function CoachExerciseCard({ block }: { block: Extract<CoachBlock, { type: "exercise_card" }> }) {
+  const { videoUrlForExercise } = useUserData();
+  const [videoUrl, setVideoUrl] = useState(block.videoUrl);
+  const [gifUrl, setGifUrl] = useState(block.gifUrl);
+  const [imageUrl, setImageUrl] = useState(block.imageUrl);
+  const [instructions, setInstructions] = useState(block.instructions ?? []);
+  const [target, setTarget] = useState(block.target ?? "");
+  const [secondary, setSecondary] = useState(block.secondary ?? []);
+
+  useEffect(() => {
+    let cancelled = false;
+    async function load() {
+      let nextVideo = block.videoUrl || (block.exerciseId ? videoUrlForExercise(block.exerciseId, block.name) : undefined);
+      let nextGif = block.gifUrl;
+      let nextImage = block.imageUrl;
+      let nextInstructions = block.instructions ?? [];
+      let nextTarget = block.target ?? "";
+      let nextSecondary = block.secondary ?? [];
+      if (block.exerciseId) {
+        const catalog = await fetchExercise(block.exerciseId);
+        if (catalog) {
+          nextVideo = nextVideo || catalog.videoUrl;
+          nextGif = nextGif || catalog.gif_url;
+          nextImage = nextImage || catalog.image;
+          if (!nextInstructions.length) nextInstructions = catalog.instruction_steps.en ?? [];
+          nextTarget = nextTarget || catalog.target;
+          nextSecondary = nextSecondary.length ? nextSecondary : catalog.secondary_muscles;
+        }
+      }
+      if (!nextVideo) {
+        const resolved = await anatomeResolveExercise(block.name).catch(() => null);
+        nextVideo = resolved?.video_url ?? nextVideo;
+      }
+      if (cancelled) return;
+      setVideoUrl(nextVideo);
+      setGifUrl(nextGif);
+      setImageUrl(nextImage);
+      setInstructions(nextInstructions.slice(0, 6));
+      setTarget(nextTarget);
+      setSecondary(nextSecondary);
+    }
+    void load();
+    return () => {
+      cancelled = true;
+    };
+  }, [block.exerciseId, block.gifUrl, block.imageUrl, block.instructions, block.name, block.secondary, block.target, block.videoUrl, videoUrlForExercise]);
+
+  return (
+    <article className="coach-card coach-exercise">
+      <span className="muscle-tag">{target || block.bodyPart || "Exercise"}</span>
+      <h3>{block.name}</h3>
+      <p>{[block.equipment, secondary.slice(0, 3).join(" · "), block.prescription].filter(Boolean).join(" · ")}</p>
+      <div className="coach-exercise-stage">
+        <ExerciseDemoPlayer
+          title={block.name}
+          videoUrl={videoUrl}
+          gifUrl={gifUrl}
+          imageUrl={imageUrl}
+          label=""
+          alt=""
+        />
+        {target ? (
+          <AnatomeExerciseMuscleThumb
+            exerciseName={block.name}
+            target={target}
+            secondaryMuscles={secondary}
+            alt=""
+          />
+        ) : null}
+      </div>
+      {instructions.length > 0 && (
+        <ol className="instruction-list compact">
+          {instructions.map((step, index) => (
+            <li key={`${index}-${step.slice(0, 24)}`}>
+              <span>{String(index + 1).padStart(2, "0")}</span>
+              <p>{step}</p>
+            </li>
+          ))}
+        </ol>
+      )}
+      {block.exerciseId ? (
+        <ActionRow items={[{ id: "open-ex", label: "Open exercise", kind: "navigate", href: `/exercises/${block.exerciseId}` }]} />
+      ) : null}
+    </article>
+  );
+}
+
 export function CoachBlockView({ block }: { block: CoachBlock }) {
   switch (block.type) {
     case "text":
       return <p className="coach-text">{block.text}</p>;
-    case "pr_card":
+    case "pr_card": {
+      const headline = block.estimated1RM ?? block.weight;
       return (
         <article className="coach-card coach-pr">
-          <span className="coach-pr-burst"><Trophy size={18} /></span>
-          <span className="eyebrow">Personal best</span>
-          <h3>{block.exercise}</h3>
-          <strong>{block.reps ? formatLoad(block.weight ?? 0, block.reps) : formatLoggedValue(block.value ?? "")}</strong>
-          {block.estimated1RM ? (
-            <p>Estimated 1RM <b>{block.estimated1RM} kg</b></p>
-          ) : null}
-          {block.delta ? <small>{block.delta}</small> : null}
+          <header className="coach-card-head">
+            <h3>{block.exercise} progress</h3>
+            {block.estimated1RM ? <span className="coach-badge">1RM estimate</span> : <span className="coach-badge">Personal best</span>}
+          </header>
+          <strong>
+            {headline != null ? <>{headline} <i>kg</i></> : block.value}
+          </strong>
+          <p>{block.delta || (block.reps ? `${block.reps} reps` : "Personal record")}</p>
           <ActionRow items={[{ id: "pr-progress", label: "View Progress", kind: "navigate", href: "/records" }]} />
         </article>
       );
+    }
     case "workout_preview":
       return (
         <article className="coach-card coach-workout">
-          <span className="eyebrow">{block.focus || "Session"}</span>
-          <h3>{block.name}</h3>
-          <p>
-            {block.duration ? `Estimated ${block.duration} min` : "Structured session"}
-            {block.score ? ` · ${block.score}/10` : ""}
-          </p>
+          <header className="coach-card-head">
+            <h3>{block.name}</h3>
+            {block.score ? <span className="coach-badge">{block.score}/10</span> : null}
+          </header>
+          <p>{block.duration ? `Estimated ${block.duration} min` : "Structured session"}</p>
           <ExerciseList exercises={block.exercises} />
+          {block.focus ? <p className="coach-focus">Focus: <b>{block.focus}</b></p> : null}
           <ActionRow
             items={[
               { id: "edit", label: "Edit", kind: "prompt", prompt: `Edit this ${block.name} workout. Ask me what to change.` },
               { id: "regen", label: "Regenerate", kind: "prompt", prompt: `Regenerate ${block.name} with a different exercise selection.` },
-              { id: "program", label: "Add to Program", kind: "navigate", href: "/programs" },
               { id: "start", label: "Start Workout", kind: "navigate", href: "/workout" },
             ]}
           />
@@ -152,24 +343,20 @@ export function CoachBlockView({ block }: { block: CoachBlock }) {
         </article>
       );
     case "exercise_card":
-      return (
-        <article className="coach-card">
-          <span className="muscle-tag">{block.target || "Exercise"}</span>
-          <h3>{block.name}</h3>
-          <p>{[block.equipment, block.secondary?.join(" · "), block.prescription].filter(Boolean).join(" · ")}</p>
-          {block.exerciseId ? (
-            <ActionRow items={[{ id: "open-ex", label: "Open exercise", kind: "navigate", href: `/exercises/${block.exerciseId}` }]} />
-          ) : null}
-        </article>
-      );
-    case "muscle_map":
+      return <CoachExerciseCard block={block} />;
+    case "muscle_map": {
+      const bodyParts = block.bodyParts?.length
+        ? block.bodyParts
+        : (block.muscles ?? []).map((muscle) => muscle.name).filter(Boolean);
       return (
         <article className="coach-card coach-muscle">
           <span className="eyebrow">{block.title || "Muscle map"}</span>
           {block.exerciseNames.length > 0 ? (
             <AnatomeMuscleImpact exerciseNames={block.exerciseNames} view="front" gender="male" />
+          ) : bodyParts.length > 0 ? (
+            <FocusMuscleMap muscles={bodyParts} compact />
           ) : (
-            <p>No mapped exercises yet.</p>
+            <p>No mapped muscles yet.</p>
           )}
           {block.muscles && block.muscles.length > 0 && (
             <ul className="coach-muscle-list">
@@ -185,34 +372,57 @@ export function CoachBlockView({ block }: { block: CoachBlock }) {
           <ActionRow items={[{ id: "map", label: "View Muscle Map", kind: "navigate", href: "/muscles" }]} />
         </article>
       );
+    }
     case "progress_chart":
-    case "volume_chart":
+    case "volume_chart": {
+      const last = block.points.at(-1);
+      const unit = block.type === "volume_chart" ? "" : (block.unit ?? "");
       return (
-        <article className="coach-card">
-          <span className="eyebrow">{block.type === "volume_chart" ? "Volume" : "Progress"}</span>
-          <h3>{block.title}</h3>
-          <Chart points={block.points} color={block.type === "volume_chart" ? "var(--orange)" : "var(--lime)"} />
-          {block.summary ? <p>{block.summary}</p> : null}
+        <article className="coach-card coach-progress">
+          <header className="coach-card-head">
+            <h3>{block.title}</h3>
+            <span className="coach-badge">{block.type === "volume_chart" ? "Volume" : "Progress"}</span>
+          </header>
+          {last ? (
+            <>
+              <strong>{last.value}{unit ? ` ${unit}` : ""}</strong>
+              <p>{block.summary || "Latest logged value"}</p>
+            </>
+          ) : null}
+          <LineChart points={block.points} color={block.type === "volume_chart" ? "var(--orange)" : "var(--lime)"} />
         </article>
       );
+    }
     case "recommendation_card":
       return (
         <article className="coach-card coach-rate">
-          <span className="eyebrow">Workout review</span>
-          <h3>{block.title}</h3>
+          <header className="coach-card-head">
+            <h3>Overall rating</h3>
+          </header>
           {typeof block.score === "number" && (
-            <strong className="coach-score">{block.score.toFixed(1)} <i>/ 10</i></strong>
+            <div className="coach-score-row">
+              <strong className="coach-score">{block.score.toFixed(1)} <i>/ 10</i></strong>
+              <Stars score={block.score} />
+            </div>
           )}
           {block.good && block.good.length > 0 && (
-            <div>
-              <span className="eyebrow">What&apos;s good</span>
-              <ul>{block.good.map((item) => <li key={item}>✓ {item}</li>)}</ul>
+            <div className="coach-note-list is-good">
+              <span>Great plan. Here&apos;s why:</span>
+              <ul>
+                {block.good.map((item) => (
+                  <li key={item}><Check size={13} /> {item}</li>
+                ))}
+              </ul>
             </div>
           )}
           {block.improve && block.improve.length > 0 && (
-            <div>
-              <span className="eyebrow">Could improve</span>
-              <ul>{block.improve.map((item) => <li key={item}>→ {item}</li>)}</ul>
+            <div className="coach-note-list is-warn">
+              <span>Suggestions to improve</span>
+              <ul>
+                {block.improve.map((item) => (
+                  <li key={item}><AlertCircle size={13} /> {item}</li>
+                ))}
+              </ul>
             </div>
           )}
           {block.suggestion ? <p>{block.suggestion}</p> : null}

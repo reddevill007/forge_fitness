@@ -115,12 +115,28 @@ export async function executeCoachTool(
       case "search_exercises": {
         const results = await fetchExercises({
           q: asString(args.query) || asString(args.muscle),
+          muscle: asString(args.muscle) || undefined,
+          equipment: asString(args.equipment) || undefined,
           limit: 8,
         });
         return {
           data: {
             total: results.total,
             items: results.items.slice(0, 8).map(compactExercise),
+          },
+        };
+      }
+      case "show_body_map": {
+        const muscles = asStringArray(args.muscles);
+        const single = asString(args.muscle);
+        const names = muscles.length ? muscles : (single ? [single] : []);
+        if (!names.length) return { data: { error: "Name at least one muscle or body part." } };
+        const related = await fetchExercises({ q: names[0], muscle: names[0], limit: 4 });
+        return {
+          data: {
+            title: asString(args.title) || names.join(" · "),
+            muscles: names,
+            related: related.items.slice(0, 3).map(compactExercise),
           },
         };
       }

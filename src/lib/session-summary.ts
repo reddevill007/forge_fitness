@@ -1,5 +1,5 @@
 import type { StoredSession } from "@/src/lib/firebase/types";
-import { sessionSetCount, sessionVolume } from "@/src/lib/firebase/stats";
+import { sessionDurationSeconds, sessionSetCount, sessionVolume } from "@/src/lib/firebase/stats";
 
 const KEY = "forge:last-session";
 
@@ -17,7 +17,7 @@ export function buildSessionSummary(session: StoredSession): SessionSummary {
   return {
     workoutName: session.workoutName,
     focus: session.focus,
-    durationSeconds: session.durationSeconds,
+    durationSeconds: sessionDurationSeconds(session),
     setCount: sessionSetCount(session),
     volume: sessionVolume(session),
     exerciseCount: session.exerciseSessions.length,

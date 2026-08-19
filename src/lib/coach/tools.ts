@@ -35,7 +35,7 @@ export const COACH_FUNCTION_DECLARATIONS: FunctionDeclaration[] = [
   },
   {
     name: "get_exercise",
-    description: "Get catalog or custom exercise details by id or name: muscles, equipment, instructions.",
+    description: "Get catalog or custom exercise details by id or name: muscles, equipment, instructions, gif, and demo video. Always call this when the athlete asks how to do a movement, which muscles it works, or wants a demo.",
     parametersJsonSchema: object({
       id: str("Exercise id if known"),
       name: str("Exercise name to look up if id is unknown"),
@@ -43,12 +43,20 @@ export const COACH_FUNCTION_DECLARATIONS: FunctionDeclaration[] = [
   },
   {
     name: "search_exercises",
-    description: "Search the exercise catalog by name, muscle, or equipment.",
+    description: "Search the exercise catalog by name, muscle, or equipment. Use when they want alternatives or movements for a body part.",
     parametersJsonSchema: object({
       query: str("Search text"),
       muscle: str("Optional muscle filter"),
       equipment: str("Optional equipment filter"),
     }),
+  },
+  {
+    name: "show_body_map",
+    description: "Show an Anatome anatomical map for one or more muscles or body parts, plus related exercise demos. Always call this when the athlete asks about a muscle, body part, where a lift should be felt, or 'show me chest/back/legs'.",
+    parametersJsonSchema: object({
+      muscles: { type: "array", items: { type: "string" }, description: "Muscle or body-part names, e.g. chest, lats, quads" },
+      title: str("Optional map title"),
+    }, ["muscles"]),
   },
   {
     name: "get_exercise_history",

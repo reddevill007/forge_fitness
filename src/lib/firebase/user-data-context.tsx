@@ -53,7 +53,7 @@ import type { ActiveSessionProgress, StoredProgram, StoredSession, StoredWorkout
 import { isTrashed } from "@/src/lib/firebase/types";
 import type { BodyMeasurement, BodyPhoto, CustomExerciseInput, Exercise, PersonalRecord, WorkoutDay, WorkoutProgram } from "@/src/types/fitness";
 import { deleteStoredFile, uploadBodyPhoto, uploadCustomExerciseMedia } from "@/src/lib/firebase/storage";
-import { newRecordsToSave, recordsFromTraining, stampExerciseSessions } from "@/src/lib/firebase/stats";
+import { newRecordsToSave, recordsFromTraining, stampExerciseSessions, elapsedSeconds } from "@/src/lib/firebase/stats";
 import {
   enqueueOutbox,
   flushOutbox,
@@ -64,6 +64,23 @@ import {
   saveLocalSessionState,
   type OfflineOutboxItem,
 } from "@/src/lib/offline-sync";
+
+function sessionSyncKey(session: StoredSession) {
+  return [
+    session.id,
+    session.startedAt,
+    session.completedAt ?? "",
+    String(session.durationSeconds),
+    session.workoutName,
+    session.focus,
+    session.notes ?? "",
+    session.exerciseSessions.map((exercise) => [
+      exercise.exerciseName ?? "",
+      exercise.notes ?? "",
+      exercise.sets.map((set) => `${set.kind}:${set.weight}:${set.reps}:${set.rir}`).join(","),
+    ].join("|")).join(";"),
+  ].join("::");
+}
 
 export type UserDataContextValue = {
   profile: UserProfile | null;
@@ -103,6 +120,7 @@ export type UserDataContextValue = {
   activateProgram: (programId: string) => Promise<void>;
   emptyTrash: () => Promise<void>;
   completeSession: (pending: PendingSession) => Promise<string>;
+  patchSession: (session: StoredSession) => Promise<void>;
   saveRecord: (record: Omit<PersonalRecord, "id">) => Promise<string>;
   saveMeasurement: (measurement: Omit<BodyMeasurement, "id">) => Promise<string>;
   saveBodyPhoto: (input: { file: File; pose: BodyPhoto["pose"]; takenAt: string; weight?: number }) => Promise<string>;
@@ -228,9 +246,6 @@ export function UserDataProvider({ children }: { children: ReactNode }) {
       return;
     }
     await saveSession(item.uid, item.session);
-    if (item.uid === uid) {
-      setPendingSessions((current) => current.filter((session) => session.id !== item.session.id));
-    }
   }, [uid]);
 
   const refreshPending = useCallback(async (userId: string) => {
@@ -280,10 +295,20 @@ export function UserDataProvider({ children }: { children: ReactNode }) {
   const activeWorkout = useMemo(() => liveWorkouts.find((workout) => workout.active) ?? null, [liveWorkouts]);
   const activeProgram = useMemo(() => livePrograms.find((program) => program.active) ?? null, [livePrograms]);
   const sessions = useMemo(() => {
-    const remoteIds = new Set(remoteSessions.map((session) => session.id));
-    return [...pendingSessions.filter((session) => !remoteIds.has(session.id)), ...remoteSessions]
-      .sort((a, b) => (a.startedAt < b.startedAt ? 1 : -1));
+    const byId = new Map(remoteSessions.map((session) => [session.id, session]));
+    for (const session of pendingSessions) byId.set(session.id, session);
+    return [...byId.values()].sort((a, b) => (a.startedAt < b.startedAt ? 1 : -1));
   }, [pendingSessions, remoteSessions]);
+
+  useEffect(() => {
+    setPendingSessions((current) => {
+      const next = current.filter((pending) => {
+        const remote = remoteSessions.find((session) => session.id === pending.id);
+        return !remote || sessionSyncKey(remote) !== sessionSyncKey(pending);
+      });
+      return next.length === current.length ? current : next;
+    });
+  }, [remoteSessions]);
   const todaysWorkout = useMemo(() => {
     const key = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"][new Date().getDay()];
     const slot = activeProgram?.schedule.find((item) => item.day === key);
@@ -471,7 +496,7 @@ export function UserDataProvider({ children }: { children: ReactNode }) {
         focus: pending.workout.focus,
         startedAt: pending.startedAt,
         completedAt,
-        durationSeconds: pending.durationSeconds,
+        durationSeconds: elapsedSeconds(pending.startedAt, completedAt) || pending.durationSeconds,
         exerciseSessions: stampExerciseSessions(pending.workout.exercises, pending.exerciseSessions),
       };
       await saveLocalSessionState(uid, { progress: null, pendingSync: true, clearedAt: completedAt });
@@ -487,6 +512,18 @@ export function UserDataProvider({ children }: { children: ReactNode }) {
       return session.id;
     },
     [records, refreshPending, runFlush, uid],
+  );
+
+  const patchSession = useCallback(
+    async (session: StoredSession) => {
+      if (!uid) throw new Error("Not signed in");
+      if (session.id.startsWith("in-progress:")) throw new Error("Finish this session before editing it.");
+      setPendingSessions((current) => [session, ...current.filter((item) => item.id !== session.id)]);
+      await enqueueOutbox({ id: `complete-session:${session.id}`, kind: "complete-session", uid, session });
+      await refreshPending(uid);
+      await runFlush();
+    },
+    [refreshPending, runFlush, uid],
   );
 
   const saveActiveSessionProgress = useCallback(
@@ -674,6 +711,7 @@ export function UserDataProvider({ children }: { children: ReactNode }) {
       activateProgram,
       emptyTrash,
       completeSession,
+      patchSession,
       saveRecord,
       saveMeasurement,
       saveBodyPhoto,
@@ -723,6 +761,7 @@ export function UserDataProvider({ children }: { children: ReactNode }) {
       activateProgram,
       emptyTrash,
       completeSession,
+      patchSession,
       saveRecord,
       saveMeasurement,
       saveBodyPhoto,

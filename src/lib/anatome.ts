@@ -49,6 +49,33 @@ import { cachedJson } from "@/src/lib/offline-cache";
 
 const ANATOME_BASE_URL = "https://api.anatome.dev";
 
+const NAME_SKIP = new Set(["the", "and", "of", "with", "to", "for", "a", "an", "full", "range", "motion", "exercise"]);
+
+function nameTokens(value: string) {
+  return value
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, " ")
+    .split(/\s+/)
+    .filter((token) => token.length > 2 && !NAME_SKIP.has(token));
+}
+
+export function namesLikelySame(left: string, right: string) {
+  const a = nameTokens(left);
+  const b = nameTokens(right);
+  if (!a.length || !b.length) return false;
+  const joinedA = a.join(" ");
+  const joinedB = b.join(" ");
+  if (joinedA === joinedB || joinedA.includes(joinedB) || joinedB.includes(joinedA)) return true;
+  const overlap = a.filter((token) => b.includes(token)).length;
+  return overlap >= Math.min(2, a.length, b.length);
+}
+
+export function anatomeClipFits(exerciseName: string, resolved: AnatomeResolveExerciseResponse) {
+  if (!resolved.matched || !resolved.video_url) return false;
+  if (resolved.video_exercise_specific === false) return false;
+  return namesLikelySame(exerciseName, resolved.exercise || "");
+}
+
 export async function anatomeResolveExercise(exercise: string): Promise<AnatomeResolveExerciseResponse> {
   const url = `${ANATOME_BASE_URL}/resolveExercise?exercise=${encodeURIComponent(exercise)}`;
   return cachedJson(`anatome:resolve:${exercise}`, async () => {

@@ -115,9 +115,11 @@ function AppShellInner({ children }: { children: React.ReactNode }) {
             <IconButton label={dark ? "Use light theme" : "Use dark theme"} onClick={() => setDark(!dark)}>
               {dark ? <Sun size={19} /> : <Moon size={19} />}
             </IconButton>
-            <button className="topbar-coach" type="button" aria-label="Open Coach" onClick={() => coach?.openPanel()}>
-              <CoachMark />
-            </button>
+            {page !== "ai" && (
+              <button className="topbar-coach" type="button" aria-label="Open Coach" onClick={() => coach?.openPanel()}>
+                <CoachMark />
+              </button>
+            )}
             <IconButton label="Notifications">
               <Bell size={19} />
               <i />

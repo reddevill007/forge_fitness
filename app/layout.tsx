@@ -1,10 +1,20 @@
 import type { Metadata } from "next";
-import { Bricolage_Grotesque, Caveat } from "next/font/google";
+import { Azeret_Mono, Caveat, Fraunces, Schibsted_Grotesk } from "next/font/google";
 import { AppProviders } from "@/src/components/providers";
 import "./globals.css";
 
-const bricolage = Bricolage_Grotesque({
-  variable: "--font-bricolage",
+const display = Fraunces({
+  variable: "--font-display",
+  subsets: ["latin"],
+});
+
+const ui = Schibsted_Grotesk({
+  variable: "--font-ui",
+  subsets: ["latin"],
+});
+
+const mono = Azeret_Mono({
+  variable: "--font-mono",
   subsets: ["latin"],
 });
 
@@ -32,7 +42,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   return (
     <html
       lang="en"
-      className={`${bricolage.variable} ${caveat.variable}`}
+      className={`${display.variable} ${ui.variable} ${mono.variable} ${caveat.variable}`}
       suppressHydrationWarning
     >
       <body>

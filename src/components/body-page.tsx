@@ -25,6 +25,8 @@ import { ContextualAiActions } from "@/src/components/coach/contextual-actions";
 import { MiniChart } from "@/src/components/doodles";
 import { AreaChart, DonutChart, VolumeBars } from "@/src/components/training-charts";
 import { PageIntro, SectionTitle } from "@/src/components/ui";
+import { AnatomyPlate } from "@/src/components/anatomy-plate";
+import { anatomyPlateForSite } from "@/src/lib/body-anatomy";
 import { ACTIVITY_OPTIONS, computeBodyMetrics, formatKg, parsePositive } from "@/src/lib/body-metrics";
 import { useCoachPage } from "@/src/lib/coach/context";
 import type { ActivityLevel, BodySex } from "@/src/lib/firebase/types";
@@ -210,6 +212,7 @@ export function BodyPage() {
   const measuredMuscles = useMemo(() => measuredMusclesFromValues(siteValues), [siteValues]);
   const tapedCount = BODY_SITES.filter((site) => siteValues[site.id]).length;
   const selected = BODY_SITES.find((site) => site.id === selectedSite) ?? null;
+  const sitePlate = selected ? anatomyPlateForSite(selected.id) : undefined;
   const selectedValue = selected ? siteValues[selected.id] : null;
   const selectedDelta = selected
     ? (() => {
@@ -464,6 +467,13 @@ export function BodyPage() {
                   : `${weightDelta > 0 ? "+" : ""}${formatKg(weightDelta)} kg`}
             </span>
           </div>
+
+          {sitePlate ? (
+            <div className="scan-notebook">
+              <span className="eyebrow">Physique notebook</span>
+              <AnatomyPlate plate={sitePlate} variant="compact" />
+            </div>
+          ) : null}
 
           <div className="scan-meter">
             <div className="scan-meter-head">

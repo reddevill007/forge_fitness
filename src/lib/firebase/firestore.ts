@@ -246,7 +246,7 @@ export function subscribeSessions(uid: string, onChange: (sessions: StoredSessio
 
 export async function saveSession(uid: string, session: Omit<StoredSession, "id"> & { id?: string }) {
   const id = session.id ?? crypto.randomUUID();
-  await setDoc(doc(sessionsRef(uid), id), { ...session, id });
+  await setDoc(doc(sessionsRef(uid), id), omitUndefined({ ...session, id }));
   return id;
 }
 
@@ -458,7 +458,10 @@ export async function finalizeWorkoutSession(uid: string, pending: PendingSessio
     focus: pending.workout.focus,
     startedAt: pending.startedAt,
     completedAt: nowIso(),
-    durationSeconds: pending.durationSeconds,
+    durationSeconds: pending.durationSeconds || Math.max(
+      0,
+      Math.round((Date.now() - new Date(pending.startedAt).getTime()) / 1000),
+    ),
     exerciseSessions: pending.exerciseSessions,
   };
   const id = await saveSession(uid, session);
