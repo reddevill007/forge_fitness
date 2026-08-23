@@ -104,6 +104,15 @@ import {
   Scribble,
 } from "@/src/components/doodles";
 import { exerciseMediaProvider } from "@/src/lib/exercise-media";
+import {
+  calendarDayKind,
+  formatShortDate,
+  formatWeekdayLong,
+  nextScheduledWorkout,
+  programSlotForDate,
+  weekdayKey,
+  workoutForDate,
+} from "@/src/lib/program-schedule";
 import { AnatomyAtlas, AnatomyPlate } from "@/src/components/anatomy-plate";
 import { AnatomeMuscleImpact } from "@/src/components/anatome-muscle-impact";
 import { FULL_BODY_PLATE, resolveAnatomyPlate } from "@/src/lib/body-anatomy";
@@ -267,7 +276,7 @@ function ExerciseProgressGraph({ values, latest }: { values: number[]; latest: n
 }
 
 export function Dashboard({ onStart }: { onStart: () => void }) {
-  const { profile, todaysWorkout, sessions, records, workouts, activeSession } = useUserData();
+  const { profile, todaysWorkout, sessions, records, workouts, activeSession, activeProgram } = useUserData();
   const [mapView, setMapView] = useState<"front" | "back" | "dual">("front");
   const training = loggedSessions(sessions, activeSession);
   const week = weeklyStats(training);
@@ -293,6 +302,8 @@ export function Dashboard({ onStart }: { onStart: () => void }) {
   const latestRecordValue = latestRecord ? formatLoggedValue(latestRecord.value) : "";
   const name = greetingName(profile?.displayName ?? "there");
   const activeWorkout = todaysWorkout;
+  const restDay = Boolean(activeProgram) && !activeWorkout;
+  const nextUp = restDay ? nextScheduledWorkout(activeProgram, workouts) : null;
   const thisWeekVolume = volumeSeries.at(-1)?.value ?? 0;
   const lastWeekVolume = volumeSeries.at(-2)?.value ?? 0;
   const volumeDelta = lastWeekVolume > 0 ? Math.round(((thisWeekVolume - lastWeekVolume) / lastWeekVolume) * 100) : null;
@@ -303,7 +314,7 @@ export function Dashboard({ onStart }: { onStart: () => void }) {
     currentWorkout: activeWorkout ? { id: activeWorkout.id, name: activeWorkout.name, focus: activeWorkout.focus } : null,
   });
 
-  if (!activeWorkout && training.length === 0) {
+  if (!activeWorkout && !activeProgram && training.length === 0) {
     return (
       <div className="dashboard">
         <section className="greeting reveal">
@@ -334,11 +345,15 @@ export function Dashboard({ onStart }: { onStart: () => void }) {
           <span className="eyebrow">{todayLabel()}</span>
           <h1>Welcome back, {name}.</h1>
           <p>
-            {activeWorkout
-              ? todayDone
-                ? `You finished ${activeWorkout.name} today.`
-                : (activeWorkout.exercises.length > 0 ? `Ready for ${activeWorkout.name}.` : "Add exercises to your active workout.")
-              : "No session is scheduled today — your recent training is below."}
+            {restDay
+              ? nextUp
+                ? `Rest day. ${nextUp.workout.name} is next on ${formatWeekdayLong(nextUp.date)}.`
+                : "Rest day — nothing is scheduled today."
+              : activeWorkout
+                ? todayDone
+                  ? `You finished ${activeWorkout.name} today.`
+                  : (activeWorkout.exercises.length > 0 ? `Ready for ${activeWorkout.name}.` : "Add exercises to your active workout.")
+                : "No session is scheduled today — your recent training is below."}
           </p>
           <ContextualAiActions
             actions={[
@@ -354,8 +369,35 @@ export function Dashboard({ onStart }: { onStart: () => void }) {
         </div>
       </section>
 
-      {activeWorkout && (
+      {(activeWorkout || restDay) && (
         <section className="dashboard-grid">
+          {restDay ? (
+            <article className="workout-hero is-rest reveal delay-1">
+              <div className="hero-copy">
+                <span className="paper-tag">
+                  <Moon size={14} />
+                  Rest day
+                </span>
+                <h2>Take the <em>day</em></h2>
+                <p>
+                  {activeProgram?.name
+                    ? `${activeProgram.name} has recovery on ${formatWeekdayLong(new Date())}.`
+                    : "Your program has this day off."}
+                </p>
+                <div className="hero-meta">
+                  <span><Moon size={17} /> Recovery</span>
+                  {nextUp && (
+                    <span><Dumbbell size={17} /> Next: {nextUp.workout.name} · {formatWeekdayLong(nextUp.date)}</span>
+                  )}
+                </div>
+                <Link className="primary-button dark-button" href="/programs">
+                  View program <ArrowRight size={17} />
+                </Link>
+              </div>
+              <DumbbellDoodle className="hero-dumbbell float-doodle" />
+              <div className="hero-noise" />
+            </article>
+          ) : activeWorkout ? (
           <article className="workout-hero reveal delay-1">
             <div className="hero-copy">
               <span className={`paper-tag ${todayDone ? "is-complete" : ""}`}>
@@ -386,6 +428,7 @@ export function Dashboard({ onStart }: { onStart: () => void }) {
             <DumbbellDoodle className="hero-dumbbell float-doodle" />
             <div className="hero-noise" />
           </article>
+          ) : null}
 
           <article className="week-card reveal delay-2">
             <div className="card-topline">
@@ -1980,14 +2023,16 @@ export function MusclesPage() {
 }
 
 export function HistoryPage() {
-  const { sessions, workouts, activeSession } = useUserData();
+  const { sessions, workouts, activeSession, activeProgram } = useUserData();
   const now = new Date();
   const [month, setMonth] = useState(now.getMonth());
   const [year, setYear] = useState(now.getFullYear());
-  const [selectedDay, setSelectedDay] = useState<number | null>(null);
+  const [selectedDay, setSelectedDay] = useState<number | null>(now.getDate());
   const [pickedSessionId, setPickedSessionId] = useState<string | null>(null);
   useCoachPage({ currentPage: "history" });
 
+  const viewingCurrentMonth = year === now.getFullYear() && month === now.getMonth();
+  const todayDate = viewingCurrentMonth ? now.getDate() : null;
   const completed = loggedSessions(sessions, activeSession);
   const monthSessions = completed.filter((session) => {
     const date = new Date(sessionDate(session));
@@ -1997,24 +2042,55 @@ export function HistoryPage() {
   const daysInMonth = new Date(year, month + 1, 0).getDate();
   const firstWeekday = (new Date(year, month, 1).getDay() + 6) % 7;
   const days = Array.from({ length: daysInMonth }, (_, index) => index + 1);
-  const daySessions = selectedDay
-    ? monthSessions.filter((session) => new Date(sessionDate(session)).getDate() === selectedDay)
-    : monthSessions.slice(0, 1);
+  const focusDay = selectedDay ?? todayDate;
+  const selectedDate = focusDay ? new Date(year, month, focusDay) : null;
+  const daySessions = selectedDate
+    ? monthSessions.filter((session) => new Date(sessionDate(session)).getDate() === focusDay)
+    : [];
   const pickedSession = pickedSessionId
     ? completed.find((session) => session.id === pickedSessionId)
     : null;
-  const selectedSession = (pickedSession && monthSessions.some((session) => session.id === pickedSession.id)
+  const selectedSession = (pickedSession && daySessions.some((session) => session.id === pickedSession.id)
     ? pickedSession
-    : null) ?? daySessions.find((session) => session.id === pickedSessionId) ?? daySessions[0];
-  const highlightDay = selectedSession
-    ? new Date(sessionDate(selectedSession)).getDate()
-    : selectedDay;
+    : null) ?? daySessions[0] ?? null;
+  const dayKind = selectedDate
+    ? calendarDayKind({
+        date: selectedDate,
+        today: now,
+        program: activeProgram,
+        trained: Boolean(focusDay && trained.has(focusDay)),
+      })
+    : "open";
+  const plannedWorkout = selectedDate ? workoutForDate(activeProgram, workouts, selectedDate) : null;
+  const plannedSlot = selectedDate ? programSlotForDate(activeProgram, selectedDate) : undefined;
+  const plannedName = plannedWorkout?.name ?? plannedSlot?.label ?? "Workout";
+  const skippedCount = days.filter((day) => (
+    calendarDayKind({
+      date: new Date(year, month, day),
+      today: now,
+      program: activeProgram,
+      trained: trained.has(day),
+    }) === "skipped"
+  )).length;
 
   useEffect(() => {
     if (selectedSession && !pickedSessionId) setPickedSessionId(selectedSession.id);
   }, [pickedSessionId, selectedSession]);
 
-  if (completed.length === 0) {
+  useEffect(() => {
+    if (viewingCurrentMonth && selectedDay == null) setSelectedDay(new Date().getDate());
+  }, [selectedDay, viewingCurrentMonth]);
+
+  function shiftMonth(step: number) {
+    const next = new Date(year, month + step, 1);
+    setYear(next.getFullYear());
+    setMonth(next.getMonth());
+    const sameMonth = next.getFullYear() === now.getFullYear() && next.getMonth() === now.getMonth();
+    setSelectedDay(sameMonth ? now.getDate() : null);
+    setPickedSessionId(null);
+  }
+
+  if (completed.length === 0 && !activeProgram) {
     return (
       <div>
         <PageIntro
@@ -2045,7 +2121,7 @@ export function HistoryPage() {
       <PageIntro
         eyebrow="Training journal"
         title="Proof of work."
-        copy="Finished sessions and in-progress logs both count."
+        copy="Sessions, skipped days, and rest days follow your active program."
         action={
           <ContextualAiActions
             actions={[
@@ -2058,52 +2134,52 @@ export function HistoryPage() {
       <section className="history-grid">
         <article className="calendar-card paper-panel reveal delay-1">
           <div className="calendar-header">
-            <button type="button" aria-label="Previous month" onClick={() => {
-              if (month === 0) {
-                setYear((y) => y - 1);
-                setMonth(11);
-              } else {
-                setMonth(month - 1);
-              }
-            }}><ArrowLeft size={17} /></button>
+            <button type="button" aria-label="Previous month" onClick={() => shiftMonth(-1)}><ArrowLeft size={17} /></button>
             <h2>
               <CalendarDays size={18} />
               {new Intl.DateTimeFormat("en-US", { month: "long", year: "numeric" }).format(new Date(year, month, 1))}
             </h2>
-            <button type="button" aria-label="Next month" onClick={() => {
-              if (month === 11) {
-                setYear((y) => y + 1);
-                setMonth(0);
-              } else {
-                setMonth(month + 1);
-              }
-            }}><ArrowRight size={17} /></button>
+            <button type="button" aria-label="Next month" onClick={() => shiftMonth(1)}><ArrowRight size={17} /></button>
           </div>
           <div className="calendar-weekdays">{["M", "T", "W", "T", "F", "S", "S"].map((day, index) => <span key={`${day}-${index}`}>{day}</span>)}</div>
           <div className="calendar-days">
             {Array.from({ length: firstWeekday }).map((_, index) => <i key={`pad-${index}`} />)}
-            {days.map((day) => (
-              <button
-                key={day}
-                type="button"
-                className={`${trained.has(day) ? "trained" : ""} ${highlightDay === day ? "selected" : ""}`}
-                onClick={() => {
-                  setSelectedDay(day);
-                  setPickedSessionId(null);
-                }}
-              >
-                <span>{day}</span>
-                {trained.has(day) && <Dumbbell size={12} />}
-              </button>
-            ))}
+            {days.map((day) => {
+              const date = new Date(year, month, day);
+              const kind = calendarDayKind({
+                date,
+                today: now,
+                program: activeProgram,
+                trained: trained.has(day),
+              });
+              const isToday = todayDate === day;
+              return (
+                <button
+                  key={day}
+                  type="button"
+                  className={`${kind} ${isToday ? "is-today" : ""} ${focusDay === day ? "selected" : ""}`}
+                  onClick={() => {
+                    setSelectedDay(day);
+                    setPickedSessionId(null);
+                  }}
+                >
+                  <span>{day}</span>
+                  {kind === "trained" && <Dumbbell size={12} />}
+                  {kind === "skipped" && <SkipForward size={12} />}
+                  {kind === "rest" && <Moon size={12} />}
+                </button>
+              );
+            })}
           </div>
           <div className="calendar-key">
-            <span><i /> Trained</span>
-            <span><i /> Selected</span>
-            <strong><Dumbbell size={13} /> {monthSessions.length} sessions this month</strong>
+            <span><i className="key-trained" /> Trained</span>
+            <span><i className="key-skipped" /> Skipped</span>
+            <span><i className="key-rest" /> Rest</span>
+            <span><i className="key-today" /> Today</span>
+            <strong><Dumbbell size={13} /> {monthSessions.length} sessions{skippedCount ? ` · ${skippedCount} skipped` : ""}</strong>
           </div>
         </article>
-        {selectedSession && (
+        {selectedSession ? (
           <div className="history-session-stack">
             {daySessions.length > 1 && (
               <div className="history-session-switch">
@@ -2121,7 +2197,35 @@ export function HistoryPage() {
             )}
             <HistorySessionCard session={selectedSession} workouts={workouts} />
           </div>
-        )}
+        ) : selectedDate ? (
+          <article className={`history-day-status paper-panel reveal delay-1 is-${dayKind}`}>
+            {dayKind === "skipped" ? <SkipForward size={28} /> : dayKind === "rest" ? <Moon size={28} /> : <CalendarDays size={28} />}
+            <span className="eyebrow">{formatShortDate(selectedDate)}</span>
+            <h3>
+              {dayKind === "skipped"
+                ? `Skipped ${plannedName}`
+                : dayKind === "rest"
+                  ? "Rest day"
+                  : dayKind === "planned"
+                    ? plannedName
+                    : "No session logged"}
+            </h3>
+            <p>
+              {dayKind === "skipped"
+                ? `${plannedName} was on your program and did not get logged.`
+                : dayKind === "rest"
+                  ? activeProgram
+                    ? `${activeProgram.name} keeps this day for recovery.`
+                    : "No workout is assigned for this day."
+                  : dayKind === "planned"
+                    ? `${plannedName} is scheduled. Log it when you train.`
+                    : "Nothing is saved for this date."}
+            </p>
+            {dayKind === "planned" && plannedWorkout && (
+              <Link className="primary-button" href="/">Start {plannedWorkout.name}</Link>
+            )}
+          </article>
+        ) : null}
       </section>
     </div>
   );
@@ -2676,8 +2780,7 @@ export function ProgramsPage() {
             {program.schedule.map((item) => {
               const assigned = workouts.find((workout) => workout.id === item.workoutDayId);
               const missing = Boolean(item.workoutDayId && !assigned);
-              const todayKey = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"][new Date().getDay()];
-              const isToday = item.day === todayKey;
+              const isToday = item.day === weekdayKey();
               return (
                 <article
                   className={`${assigned || missing ? "" : "rest-day"} ${isToday ? "today" : ""}`}

@@ -54,6 +54,7 @@ import { isTrashed } from "@/src/lib/firebase/types";
 import type { BodyMeasurement, BodyPhoto, CustomExerciseInput, Exercise, PersonalRecord, WorkoutDay, WorkoutProgram } from "@/src/types/fitness";
 import { deleteStoredFile, uploadBodyPhoto, uploadCustomExerciseMedia } from "@/src/lib/firebase/storage";
 import { newRecordsToSave, recordsFromTraining, stampExerciseSessions, elapsedSeconds } from "@/src/lib/firebase/stats";
+import { resolveTodaysWorkout } from "@/src/lib/program-schedule";
 import {
   enqueueOutbox,
   flushOutbox,
@@ -309,12 +310,10 @@ export function UserDataProvider({ children }: { children: ReactNode }) {
       return next.length === current.length ? current : next;
     });
   }, [remoteSessions]);
-  const todaysWorkout = useMemo(() => {
-    const key = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"][new Date().getDay()];
-    const slot = activeProgram?.schedule.find((item) => item.day === key);
-    if (slot?.workoutDayId) return liveWorkouts.find((workout) => workout.id === slot.workoutDayId) ?? activeWorkout;
-    return activeWorkout;
-  }, [activeProgram, liveWorkouts, activeWorkout]);
+  const todaysWorkout = useMemo(
+    () => resolveTodaysWorkout(activeProgram, liveWorkouts, activeWorkout),
+    [activeProgram, liveWorkouts, activeWorkout],
+  );
 
   const updateUserProfile = useCallback(
     async (patch: Partial<UserProfile>) => {
