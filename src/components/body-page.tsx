@@ -3,6 +3,7 @@
 import {
   Activity,
   Camera,
+  FileScan,
   Flame,
   Images,
   Plus,
@@ -26,13 +27,16 @@ import { MiniChart } from "@/src/components/doodles";
 import { AreaChart, DonutChart, VolumeBars } from "@/src/components/training-charts";
 import { PageIntro, SectionTitle } from "@/src/components/ui";
 import { AnatomyPlate } from "@/src/components/anatomy-plate";
+import { BodyCompositionPanel } from "@/src/components/body-composition-panel";
 import { anatomyPlateForSite } from "@/src/lib/body-anatomy";
 import { ACTIVITY_OPTIONS, computeBodyMetrics, formatKg, parsePositive } from "@/src/lib/body-metrics";
-import { useCoachPage } from "@/src/lib/coach/context";
+import { hasComposition } from "@/src/lib/body-composition";
+import { useCoach, useCoachPage } from "@/src/lib/coach/context";
+import { coachScanPrompt, fileToCoachImage, filesFromPicker, MAX_COACH_IMAGES } from "@/src/lib/coach/image-attach";
 import type { ActivityLevel, BodySex } from "@/src/lib/firebase/types";
 import { loggedSessions, sessionDate } from "@/src/lib/firebase/stats";
 import { useUserData } from "@/src/lib/firebase/user-data-context";
-import type { BodyPhotoPose } from "@/src/types/fitness";
+import type { BodyMeasurement, BodyPhotoPose } from "@/src/types/fitness";
 
 const MEASUREMENT_FIELDS = [
   { key: "waist", label: "Waist", unit: "cm" },
@@ -62,7 +66,7 @@ function roundDelta(value: number) {
   return Math.round(value * 10) / 10;
 }
 
-function seriesFor(measurements: Array<{ measuredAt: string; [key: string]: string | number | undefined }>, key: FieldKey) {
+function seriesFor(measurements: BodyMeasurement[], key: FieldKey) {
   return [...measurements]
     .filter((item) => parsePositive(item[key]))
     .reverse()
@@ -77,6 +81,7 @@ export function BodyPage() {
   const {
     measurements,
     saveMeasurement,
+    deleteMeasurement,
     profile,
     updateUserProfile,
     bodyPhotos,
@@ -116,8 +121,12 @@ export function BodyPage() {
   const [compareSplit, setCompareSplit] = useState(58);
   const cameraInput = useRef<HTMLInputElement>(null);
   const uploadInput = useRef<HTMLInputElement>(null);
+  const scanInput = useRef<HTMLInputElement>(null);
   const [mapView, setMapView] = useState<"front" | "back" | "dual">("dual");
   const [selectedSite, setSelectedSite] = useState<BodySiteId | null>(null);
+  const [scanError, setScanError] = useState("");
+  const [importingScan, setImportingScan] = useState(false);
+  const coach = useCoach();
   useCoachPage({ currentPage: "body" });
 
   useEffect(() => {
@@ -231,18 +240,20 @@ export function BodyPage() {
   const activityLabel = ACTIVITY_OPTIONS.find((item) => item.id === (profile?.activityLevel ?? activityLevel))?.label;
 
   const healthIndex = useMemo(() => {
+    if (latest?.healthScore != null) return Math.min(100, Math.max(0, Math.round(latest.healthScore)));
     let score = 28;
     if (latestWeight) score += 14;
     if (profile?.heightCm) score += 10;
     if (profile?.age && profile?.sex) score += 8;
     if (latest?.waist) score += 8;
+    if (latest?.bodyFat != null) score += latest.bodyFat <= 20 ? 12 : latest.bodyFat <= 28 ? 6 : 2;
     if (metrics) {
       if (metrics.bmi >= 18.5 && metrics.bmi < 25) score += 32;
       else if (metrics.bmi >= 17 && metrics.bmi < 30) score += 18;
       else score += 8;
     }
     return Math.min(100, score);
-  }, [latestWeight, latest?.waist, profile?.heightCm, profile?.age, profile?.sex, metrics]);
+  }, [latestWeight, latest?.waist, latest?.bodyFat, latest?.healthScore, profile?.heightCm, profile?.age, profile?.sex, metrics]);
   const bmiPin = metrics ? Math.min(96, Math.max(4, ((metrics.bmi - 15) / 25) * 100)) : 22;
 
   const posePhotos = bodyPhotos.filter((item) => item.pose === comparePose).slice().reverse();
@@ -328,6 +339,20 @@ export function BodyPage() {
     setPhotoError("");
   }
 
+  async function handleScanFiles(files: File[]) {
+    if (!files.length || !coach) return;
+    setImportingScan(true);
+    setScanError("");
+    try {
+      const images = await Promise.all(files.slice(0, MAX_COACH_IMAGES).map(fileToCoachImage));
+      await coach.ask(coachScanPrompt(images.length), images);
+    } catch (error) {
+      setScanError(error instanceof Error ? error.message : "Could not read that scan.");
+    } finally {
+      setImportingScan(false);
+    }
+  }
+
   async function handlePhoto(event: React.FormEvent) {
     event.preventDefault();
     if (!photoFile) {
@@ -360,12 +385,12 @@ export function BodyPage() {
       <PageIntro
         eyebrow="Body tracking"
         title="Change takes shape."
-        copy="Anatome maps tape measurements and the last 21 days of training onto a real anatomical figure."
+        copy="Log a weigh-in, or drop BodyAnalyse / InBody printouts and Coach fills a report for each date."
         action={
           <ContextualAiActions
             actions={[
               { label: "How is my weight trending?", prompt: "How have my body measurements changed? Use logged check-ins only." },
-              { label: "What should I eat?", prompt: "Using my latest weight, height, age, sex, activity, and goal, tell me calories and protein. Use the logged body data only." },
+              { label: "Read my last scan", prompt: "Summarize my latest body composition check-in. Use logged data only." },
             ]}
           />
         }
@@ -433,7 +458,7 @@ export function BodyPage() {
         <aside className="scan-result reveal delay-1">
           <div className="scan-result-head">
             <span className="eyebrow">Body scan result</span>
-            <h2>{selected ? selected.label : metrics ? metrics.bmiLabel : "Ready to scan"}</h2>
+            <h2>{selected ? selected.label : latest?.obesityType || (metrics ? metrics.bmiLabel : "Ready to scan")}</h2>
             <p>
               {selected
                 ? trainedSets
@@ -524,9 +549,33 @@ export function BodyPage() {
             <button className="outline-button" type="button" onClick={() => setAddingPhoto(true)}>
               <Camera size={17} /> Add photo
             </button>
+            <label className={`outline-button ${importingScan || !coach ? "is-disabled" : ""}`}>
+              <FileScan size={17} /> {importingScan ? "Reading…" : "Import scans"}
+              <input
+                ref={scanInput}
+                className="sr-only"
+                type="file"
+                accept="image/*"
+                multiple
+                disabled={importingScan || !coach}
+                onChange={(event) => {
+                  const files = filesFromPicker(event.target.files);
+                  event.target.value = "";
+                  void handleScanFiles(files);
+                }}
+              />
+            </label>
           </div>
+          {scanError ? <p className="coach-error" role="alert">{scanError}</p> : null}
         </aside>
       </section>
+
+      <BodyCompositionPanel
+        measurements={measurements}
+        onDelete={async (ids) => {
+          for (const id of ids) await deleteMeasurement(id);
+        }}
+      />
 
       <section className="body-insight-grid">
         {[
@@ -680,8 +729,14 @@ export function BodyPage() {
             <div className="body-history">
               {measurements.slice(0, 6).map((item) => (
                 <div key={item.id} className="measurement-row">
-                  <strong>{new Date(item.measuredAt).toLocaleDateString(undefined, { month: "short", day: "numeric" })}</strong>
-                  <span>{item.weight ? `${formatKg(item.weight)} kg` : "—"}</span>
+                  <div>
+                    <strong>{new Date(item.measuredAt).toLocaleDateString(undefined, { month: "short", day: "numeric" })}</strong>
+                    {hasComposition(item) ? <small>{item.source === "chat" ? "From Coach" : "Scan"}</small> : null}
+                  </div>
+                  <span>
+                    {item.weight ? `${formatKg(item.weight)} kg` : "—"}
+                    {item.bodyFat != null ? ` · ${item.bodyFat}%` : ""}
+                  </span>
                 </div>
               ))}
             </div>
@@ -692,7 +747,7 @@ export function BodyPage() {
       </section>
 
       <p className="body-disclaimer">
-        <Activity size={14} /> BMI is a rough screen, not a diagnosis. Calories use Mifflin-St Jeor plus activity.
+        <Activity size={14} /> BMI is a rough screen, not a diagnosis. Calories use Mifflin-St Jeor plus activity. Scan numbers come from your report, not from Coach guessing.
       </p>
 
       {logging && (

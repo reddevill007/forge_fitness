@@ -1,21 +1,29 @@
-import { GoogleGenAI } from "@google/genai";
+import { FunctionCallingConfigMode, GoogleGenAI } from "@google/genai";
 import { COACH_SYSTEM_PROMPT, formatPageContext } from "@/src/lib/coach/system-prompt";
 import { COACH_FUNCTION_DECLARATIONS } from "@/src/lib/coach/tools";
 import type { CoachChatRequest, CoachChatResponse, CoachContent, CoachPart } from "@/src/lib/coach/types";
 
 export const runtime = "nodejs";
+export const maxDuration = 60;
 
 const MODEL = "gemini-2.5-flash";
 
 function asContents(contents: CoachContent[]) {
   return contents.map((content) => ({
     role: content.role,
-    parts: content.parts.map((part) => toGeminiPart(part)),
+    parts: content.parts.map((part) => toGeminiPart(part)).filter((part): part is NonNullable<typeof part> => Boolean(part)),
   }));
 }
 
 function toGeminiPart(part: CoachPart) {
-  if ("text" in part) return { text: part.text };
+  if ("inlineData" in part && part.inlineData?.data) {
+    return {
+      inlineData: {
+        mimeType: part.inlineData.mimeType || "image/jpeg",
+        data: part.inlineData.data,
+      },
+    };
+  }
   if ("functionCall" in part) {
     return {
       functionCall: {
@@ -25,13 +33,39 @@ function toGeminiPart(part: CoachPart) {
       },
     };
   }
-  return {
-    functionResponse: {
-      id: part.functionResponse.id,
-      name: part.functionResponse.name,
-      response: part.functionResponse.response,
-    },
-  };
+  if ("functionResponse" in part) {
+    return {
+      functionResponse: {
+        id: part.functionResponse.id,
+        name: part.functionResponse.name,
+        response: part.functionResponse.response,
+      },
+    };
+  }
+  if ("text" in part && part.text) return { text: part.text };
+  return null;
+}
+
+function injectImages(contents: CoachContent[], images: CoachChatRequest["images"]): CoachContent[] {
+  const usable = (images ?? []).filter((image) => image?.data);
+  if (!usable.length) return contents;
+  const next = contents.map((content) => ({ ...content, parts: [...content.parts] }));
+  const lastUser = [...next].reverse().find((content) => (
+    content.role === "user" && !content.parts.some((part) => "functionResponse" in part)
+  ));
+  if (!lastUser) return next;
+  const hasImage = lastUser.parts.some((part) => "inlineData" in part && part.inlineData?.data);
+  if (hasImage) return next;
+  lastUser.parts.push(
+    { text: "The body composition report photo is attached. Read the image pixels. Do not ask for another copy." },
+    ...usable.map((image) => ({
+      inlineData: {
+        mimeType: image.mimeType || "image/jpeg",
+        data: image.data,
+      },
+    })),
+  );
+  return next;
 }
 
 function fromGeminiParts(parts: Array<Record<string, unknown>> | undefined): CoachPart[] {
@@ -85,15 +119,29 @@ export async function POST(request: Request) {
     return Response.json({ error: "Missing conversation." } satisfies CoachChatResponse, { status: 400 });
   }
 
+  const contents = injectImages(body.contents, body.images);
+  const hasImages = contents.some((content) => content.parts.some((part) => "inlineData" in part && part.inlineData?.data));
+  const forceScanTool = Boolean(body.forceScanTool && hasImages);
+
   try {
     const ai = new GoogleGenAI({ apiKey });
     const response = await ai.models.generateContent({
       model: MODEL,
-      contents: asContents(body.contents),
+      contents: asContents(contents),
       config: {
-        systemInstruction: `${COACH_SYSTEM_PROMPT}\n\n${formatPageContext(body.pageContext ?? { currentPage: "unknown" })}`,
+        systemInstruction: `${COACH_SYSTEM_PROMPT}\n\n${formatPageContext(body.pageContext ?? { currentPage: "unknown" })}${hasImages ? "\n\nThe athlete attached a body composition report photo. You can see it. Call save_body_composition with every readable number. Do not ask them to paste or re-upload." : ""}`,
         tools: [{ functionDeclarations: COACH_FUNCTION_DECLARATIONS }],
-        temperature: 0.45,
+        ...(forceScanTool
+          ? {
+              toolConfig: {
+                functionCallingConfig: {
+                  mode: FunctionCallingConfigMode.ANY,
+                  allowedFunctionNames: ["save_body_composition"],
+                },
+              },
+            }
+          : {}),
+        temperature: hasImages ? 0.1 : 0.45,
         maxOutputTokens: 8192,
       },
     });

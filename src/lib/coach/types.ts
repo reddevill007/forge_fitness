@@ -1,3 +1,5 @@
+import type { BodyCompositionWrite } from "@/src/lib/body-composition";
+
 export type CoachPageContext = {
   currentPage: string;
   currentExercise?: { id: string; name: string } | null;
@@ -9,6 +11,7 @@ export type CoachPageContext = {
 
 export type CoachPart =
   | { text: string }
+  | { inlineData: { mimeType: string; data: string } }
   | { functionCall: { id?: string; name: string; args: Record<string, unknown> } }
   | { functionResponse: { id?: string; name: string; response: Record<string, unknown> } };
 
@@ -109,6 +112,10 @@ export type PendingWrite =
         name?: string;
         schedule?: Array<{ day: string; workoutName?: string; label: string }>;
       };
+    }
+  | {
+      tool: "save_body_composition";
+      payload: { reports: BodyCompositionWrite[] };
     };
 
 export type CoachBlock =
@@ -197,6 +204,19 @@ export type CoachBlock =
       bodyPart: string;
       instructions: string[];
     }
+  | {
+      type: "body_scan_card";
+      measuredAt?: string;
+      weightKg?: number;
+      bodyFatPercent?: number;
+      skeletalMuscleKg?: number;
+      bmi?: number;
+      visceralFatIndex?: number;
+      bodyAge?: number;
+      healthScore?: number;
+      obesityType?: string;
+      targetWeightKg?: number;
+    }
   | { type: "actions"; items: CoachAction[] };
 
 export type CoachMessage = {
@@ -205,6 +225,7 @@ export type CoachMessage = {
   text: string;
   blocks: CoachBlock[];
   createdAt?: string;
+  attachments?: Array<{ mimeType: string; preview: string }>;
 };
 
 export type StoredCoachThread = {
@@ -222,6 +243,8 @@ export type CoachThreadSummary = Pick<StoredCoachThread, "id" | "title" | "previ
 export type CoachChatRequest = {
   contents: CoachContent[];
   pageContext: CoachPageContext;
+  images?: Array<{ mimeType: string; data: string }>;
+  forceScanTool?: boolean;
 };
 
 export type CoachChatResponse = {
@@ -240,6 +263,7 @@ export const WRITE_TOOLS = new Set([
   "delete_exercise_from_workout",
   "create_program",
   "update_program",
+  "save_body_composition",
 ]);
 
 export const TOOL_THINKING: Record<string, string> = {
@@ -266,4 +290,5 @@ export const TOOL_THINKING: Record<string, string> = {
   delete_exercise_from_workout: "Preparing to remove an exercise…",
   create_program: "Drafting a program…",
   update_program: "Preparing program changes…",
+  save_body_composition: "Reading your body composition numbers…",
 };

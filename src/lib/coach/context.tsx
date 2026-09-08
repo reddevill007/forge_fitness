@@ -10,11 +10,13 @@ import {
   useState,
   type ReactNode,
 } from "react";
+import { compositionReportsSummary } from "@/src/lib/body-composition";
 import { applyPendingWrite, executeCoachTool } from "@/src/lib/coach/execute-tools";
 import {
   capCoachContents,
   lastThreadStorageKey,
   sanitizeStoredMessages,
+  stripCoachInlineData,
   threadPreview,
   threadTitleFromPrompt,
 } from "@/src/lib/coach/history";
@@ -32,6 +34,7 @@ import type {
   StoredCoachThread,
 } from "@/src/lib/coach/types";
 import { TOOL_THINKING } from "@/src/lib/coach/types";
+import type { CoachImageAttachment } from "@/src/lib/coach/image-attach";
 import { deleteCoachThread, getCoachThread, saveCoachThread, subscribeCoachThreads } from "@/src/lib/firebase/coach-threads";
 import { useAuth } from "@/src/lib/firebase/auth-context";
 import { useUserData } from "@/src/lib/firebase/user-data-context";
@@ -57,7 +60,7 @@ type CoachContextValue = {
   newChat: () => void;
   openThread: (id: string) => Promise<void>;
   deleteThread: (id: string) => Promise<void>;
-  ask: (prompt: string) => Promise<void>;
+  ask: (prompt: string, attachments?: CoachImageAttachment[]) => Promise<void>;
   confirmWrite: (write: PendingWrite) => Promise<void>;
   dismissWrite: (write: PendingWrite) => void;
   clearError: () => void;
@@ -88,6 +91,10 @@ function writeTitle(write: PendingWrite) {
       return `Create ${write.payload.name}?`;
     case "update_program":
       return "Update this program?";
+    case "save_body_composition": {
+      const count = write.payload.reports.length;
+      return count > 1 ? `Save ${count} body scans?` : "Save this body scan?";
+    }
     default:
       return "Apply this change?";
   }
@@ -108,6 +115,8 @@ function writeSummary(write: PendingWrite) {
       return write.payload.prescription ?? "Add to the current workout";
     case "create_program":
       return `${write.payload.schedule.filter((slot) => slot.workoutName && slot.workoutName !== "Rest").length} training days`;
+    case "save_body_composition":
+      return compositionReportsSummary(write.payload.reports);
     default:
       return "This will change your training data.";
   }
@@ -116,6 +125,23 @@ function writeSummary(write: PendingWrite) {
 function sameWrite(a: PendingWrite, b: PendingWrite) {
   if (!a?.payload || !b?.payload) return false;
   return JSON.stringify(a) === JSON.stringify(b);
+}
+
+function scanCardsFromWrite(write: PendingWrite): CoachBlock[] {
+  if (write.tool !== "save_body_composition") return [];
+  return write.payload.reports.map((payload) => ({
+    type: "body_scan_card" as const,
+    measuredAt: payload.measuredAt,
+    weightKg: payload.weightKg,
+    bodyFatPercent: payload.bodyFatPercent,
+    skeletalMuscleKg: payload.skeletalMuscleKg,
+    bmi: payload.bmi,
+    visceralFatIndex: payload.visceralFatIndex,
+    bodyAge: payload.bodyAge,
+    healthScore: payload.healthScore,
+    obesityType: payload.obesityType,
+    targetWeightKg: payload.targetWeightKg,
+  }));
 }
 
 function injectConfirmations(blocks: CoachBlock[], writes: PendingWrite[]) {
@@ -129,6 +155,9 @@ function injectConfirmations(blocks: CoachBlock[], writes: PendingWrite[]) {
         summary: writeSummary(write),
         write,
       });
+    }
+    if (!next.some((block) => block.type === "body_scan_card")) {
+      next.push(...scanCardsFromWrite(write));
     }
   }
   return next;
@@ -298,9 +327,10 @@ export function CoachProvider({ children }: { children: ReactNode }) {
     await deleteCoachThread(user.uid, id).catch(() => undefined);
   }, [newChat, user]);
 
-  const runTurn = useCallback(async (nextContents: CoachContent[]) => {
-    setContents(nextContents);
-    contentsRef.current = nextContents;
+  const runTurn = useCallback(async (nextContents: CoachContent[], images?: CoachImageAttachment[]) => {
+    const persistable = stripCoachInlineData(nextContents);
+    setContents(persistable);
+    contentsRef.current = persistable;
     setBusy(true);
     setError(null);
     setThinking(null);
@@ -308,11 +338,41 @@ export function CoachProvider({ children }: { children: ReactNode }) {
       let current = nextContents;
       const collectedWrites: PendingWrite[] = [];
       const visualBlocks: CoachBlock[] = [];
+      const turnImages = (images ?? []).filter((image) => image.data).map((image) => ({
+        mimeType: image.mimeType || "image/jpeg",
+        data: image.data,
+      }));
+      const finishScanTurn = (history: CoachContent[], writes: PendingWrite[], visuals: CoachBlock[]) => {
+        const scanCount = writes.reduce(
+          (total, write) => total + (write.tool === "save_body_composition" ? write.payload.reports.length : 0),
+          0,
+        );
+        const text = scanCount > 1
+          ? `I read ${scanCount} reports as separate check-ins. Confirm to save them all to Body analysis.`
+          : "I read the numbers on your report. Confirm to save them to Body analysis.";
+        const blocks = injectConfirmations(mergeCoachVisuals([], visuals), writes);
+        setMessages((currentMessages) => [...currentMessages, {
+          id: crypto.randomUUID(),
+          role: "assistant",
+          text,
+          blocks,
+          createdAt: new Date().toISOString(),
+        }]);
+        const next = stripCoachInlineData([...history, { role: "model", parts: [{ text }] }]);
+        setContents(next);
+        contentsRef.current = next;
+      };
       for (let round = 0; round < 6; round += 1) {
+        const scanReady = collectedWrites.some((write) => write.tool === "save_body_composition");
         const response = await fetch("/api/coach/chat", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ contents: current, pageContext: pageRef.current }),
+          body: JSON.stringify({
+            contents: current,
+            pageContext: pageRef.current,
+            images: !scanReady && turnImages.length ? turnImages : undefined,
+            forceScanTool: round === 0 && turnImages.length > 0,
+          }),
         });
         const json = (await response.json()) as CoachChatResponse;
         if (!response.ok || json.error) {
@@ -321,6 +381,10 @@ export function CoachProvider({ children }: { children: ReactNode }) {
         }
 
         if (json.functionCalls?.length) {
+          if (scanReady) {
+            finishScanTurn(current, collectedWrites, visualBlocks);
+            return;
+          }
           const modelContent: CoachContent = json.modelContent ?? {
             role: "model",
             parts: json.functionCalls.map((call) => ({ functionCall: call })),
@@ -357,6 +421,10 @@ export function CoachProvider({ children }: { children: ReactNode }) {
             }
           }
           current = [...current, modelContent, { role: "user", parts: responseParts }];
+          if (collectedWrites.some((write) => write.tool === "save_body_composition")) {
+            finishScanTurn(current, collectedWrites, visualBlocks);
+            return;
+          }
           continue;
         }
 
@@ -375,7 +443,7 @@ export function CoachProvider({ children }: { children: ReactNode }) {
           role: "model",
           parts: [{ text: json.text ?? parsed.text }],
         };
-        current = [...current, modelContent];
+        current = stripCoachInlineData([...current, modelContent]);
         setContents(current);
         contentsRef.current = current;
         return;
@@ -389,9 +457,11 @@ export function CoachProvider({ children }: { children: ReactNode }) {
     }
   }, [autoApply]);
 
-  const ask = useCallback(async (prompt: string) => {
+  const ask = useCallback(async (prompt: string, attachments?: CoachImageAttachment[]) => {
     const trimmed = prompt.trim();
-    if (!trimmed || busy) return;
+    const images = (attachments ?? []).filter((image) => image?.data).slice(0, 3);
+    if ((!trimmed && images.length === 0) || busy) return;
+    const text = trimmed || "Read this body composition report and save every number into my body analysis.";
     if (pageRef.current.currentPage !== "ai" && !isAiSurface()) setOpen(true);
     if (!activeThreadRef.current) {
       const id = crypto.randomUUID();
@@ -401,9 +471,17 @@ export function CoachProvider({ children }: { children: ReactNode }) {
     }
     setMessages((current) => [
       ...current,
-      { id: crypto.randomUUID(), role: "user", text: trimmed, blocks: [], createdAt: new Date().toISOString() },
+      {
+        id: crypto.randomUUID(),
+        role: "user",
+        text,
+        blocks: [],
+        createdAt: new Date().toISOString(),
+        attachments: images.map((image) => ({ mimeType: image.mimeType, preview: image.preview })),
+      },
     ]);
-    await runTurn([...contentsRef.current, { role: "user", parts: [{ text: trimmed }] }]);
+    const parts: CoachPart[] = [{ text: images.length ? `${text}\n\n[Attached ${images.length} body composition photo${images.length > 1 ? "s" : ""}.]` : text }];
+    await runTurn([...contentsRef.current, { role: "user", parts }], images);
   }, [busy, rememberThread, runTurn]);
 
   const confirmWrite = useCallback(async (write: PendingWrite) => {

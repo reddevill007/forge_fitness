@@ -19,6 +19,7 @@ import {
   createProgram,
   createWorkout,
   deleteBodyPhotoDoc,
+  deleteMeasurement,
   deleteProgram,
   deleteWorkout,
   restoreProgram,
@@ -124,6 +125,7 @@ export type UserDataContextValue = {
   patchSession: (session: StoredSession) => Promise<void>;
   saveRecord: (record: Omit<PersonalRecord, "id">) => Promise<string>;
   saveMeasurement: (measurement: Omit<BodyMeasurement, "id">) => Promise<string>;
+  deleteMeasurement: (measurementId: string) => Promise<void>;
   saveBodyPhoto: (input: { file: File; pose: BodyPhoto["pose"]; takenAt: string; weight?: number }) => Promise<string>;
   deleteBodyPhoto: (photoId: string) => Promise<void>;
   saveVideoUrl: (exerciseId: string, videoUrl: string) => Promise<void>;
@@ -573,6 +575,14 @@ export function UserDataProvider({ children }: { children: ReactNode }) {
     [uid],
   );
 
+  const removeMeasurement = useCallback(
+    async (measurementId: string) => {
+      if (!uid) throw new Error("Not signed in");
+      await deleteMeasurement(uid, measurementId);
+    },
+    [uid],
+  );
+
   const saveBodyPhoto = useCallback(
     async (input: { file: File; pose: BodyPhoto["pose"]; takenAt: string; weight?: number }) => {
       if (!uid) throw new Error("Not signed in");
@@ -713,6 +723,7 @@ export function UserDataProvider({ children }: { children: ReactNode }) {
       patchSession,
       saveRecord,
       saveMeasurement,
+      deleteMeasurement: removeMeasurement,
       saveBodyPhoto,
       deleteBodyPhoto: removeBodyPhoto,
       saveVideoUrl,
@@ -763,6 +774,7 @@ export function UserDataProvider({ children }: { children: ReactNode }) {
       patchSession,
       saveRecord,
       saveMeasurement,
+      removeMeasurement,
       saveBodyPhoto,
       removeBodyPhoto,
       saveVideoUrl,

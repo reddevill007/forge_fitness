@@ -276,6 +276,10 @@ export async function addMeasurement(uid: string, measurement: Omit<BodyMeasurem
   return id;
 }
 
+export async function deleteMeasurement(uid: string, measurementId: string) {
+  await deleteDoc(doc(measurementsRef(uid), measurementId));
+}
+
 export function subscribeBodyPhotos(uid: string, onChange: (items: BodyPhoto[]) => void): Unsubscribe {
   const q = query(bodyPhotosRef(uid), orderBy("takenAt", "desc"));
   return onSnapshot(q, (snap) => {

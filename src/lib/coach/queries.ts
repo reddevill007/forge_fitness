@@ -437,8 +437,9 @@ export function progressSnapshot(data: UserDataContextValue, exerciseId?: string
 }
 
 export function measurementsSnapshot(data: UserDataContextValue, limit = 12) {
-  const items = data.measurements.slice(0, Math.min(20, Math.max(1, limit))).map((item) => ({
+  const items = data.measurements.slice(0, Math.min(30, Math.max(1, limit))).map((item) => ({
     measuredAt: item.measuredAt,
+    source: item.source,
     weight: item.weight,
     waist: item.waist,
     hips: item.hips,
@@ -447,6 +448,25 @@ export function measurementsSnapshot(data: UserDataContextValue, limit = 12) {
     thighs: item.thighs,
     calves: item.calves,
     bodyFat: item.bodyFat,
+    moistureKg: item.moistureKg,
+    proteinKg: item.proteinKg,
+    mineralKg: item.mineralKg,
+    fatKg: item.fatKg,
+    fatFreeMassKg: item.fatFreeMassKg,
+    skeletalMuscleKg: item.skeletalMuscleKg,
+    bmi: item.bmi,
+    waistHipRatio: item.waistHipRatio,
+    subcutaneousFatKg: item.subcutaneousFatKg,
+    visceralFatIndex: item.visceralFatIndex,
+    obesityType: item.obesityType,
+    targetWeightKg: item.targetWeightKg,
+    weightControlKg: item.weightControlKg,
+    fatControlKg: item.fatControlKg,
+    muscleControlKg: item.muscleControlKg,
+    basalMetabolismKcal: item.basalMetabolismKcal,
+    healthScore: item.healthScore,
+    bodyAge: item.bodyAge,
+    segmental: item.segmental,
   }));
   const latestWeight = items.find((item) => item.weight)?.weight;
   const metrics = computeBodyMetrics({

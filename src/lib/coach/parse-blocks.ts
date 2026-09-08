@@ -16,6 +16,7 @@ const BLOCK_TYPES = new Set([
   "recommendation_card",
   "confirmation_card",
   "exercise_preview",
+  "body_scan_card",
   "actions",
 ]);
 

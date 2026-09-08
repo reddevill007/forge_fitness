@@ -3,6 +3,11 @@ import { workoutExerciseFromCatalog } from "@/src/lib/firebase/firestore";
 import type { UserDataContextValue } from "@/src/lib/firebase/user-data-context";
 import type { CustomExerciseInput, Exercise, WorkoutDay, WorkoutExercise, WorkoutProgram } from "@/src/types/fitness";
 import {
+  compositionToMeasurement,
+  compositionToProfilePatch,
+  reportsFromCompositionArgs,
+} from "@/src/lib/body-composition";
+import {
   compactExercise,
   estimated1RM,
   exerciseHistorySnapshot,
@@ -174,7 +179,7 @@ export async function executeCoachTool(
           ),
         };
       case "get_body_measurements":
-        return { data: measurementsSnapshot(data, asNumber(args.limit, 12)) };
+        return { data: measurementsSnapshot(data, asNumber(args.limit, 24)) };
       case "get_recent_workouts":
         return { data: historySnapshot(data, asNumber(args.limit, 5)) };
       case "calculate_estimated_1rm": {
@@ -303,6 +308,22 @@ export async function executeCoachTool(
             : undefined,
         };
         return confirmation("update_program", { tool: "update_program", payload }, payload);
+      }
+      case "save_body_composition": {
+        const reports = reportsFromCompositionArgs(args);
+        if (!reports.length) {
+          return { data: { error: "No usable body composition numbers were found. Ask for the report photo or the key values." } };
+        }
+        const payload = { reports };
+        return confirmation("save_body_composition", { tool: "save_body_composition", payload }, {
+          count: reports.length,
+          reports: reports.map((report) => ({
+            measuredAt: report.measuredAt,
+            weightKg: report.weightKg,
+            bodyFatPercent: report.bodyFatPercent,
+            skeletalMuscleKg: report.skeletalMuscleKg,
+          })),
+        });
       }
       default:
         return { data: { error: "Unknown tool." } };
@@ -479,6 +500,19 @@ export async function applyPendingWrite(write: PendingWrite, data: UserDataConte
         schedule: write.payload.schedule ? scheduleFromPayload(data, write.payload.schedule) : undefined,
       });
       return { ok: true, programId: write.payload.programId };
+    }
+    case "save_body_composition": {
+      const reports = write.payload.reports;
+      const ids: string[] = [];
+      for (const report of reports) {
+        ids.push(await data.saveMeasurement(compositionToMeasurement(report)));
+      }
+      const newest = [...reports].reverse().find((report) => report.heightCm || report.age || report.sex) ?? reports.at(-1);
+      if (newest) {
+        const profilePatch = compositionToProfilePatch(newest);
+        if (Object.keys(profilePatch).length) await data.updateUserProfile(profilePatch);
+      }
+      return { ok: true, count: ids.length, measurementIds: ids };
     }
     default:
       return { ok: false, error: "Unknown write." };

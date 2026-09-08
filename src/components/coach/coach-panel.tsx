@@ -1,14 +1,27 @@
 "use client";
 
-import { History, Maximize2, Minimize2, Plus, Send, X } from "lucide-react";
+import { History, ImagePlus, Maximize2, Minimize2, Plus, Send, X } from "lucide-react";
 import { useState } from "react";
 import { CoachThread, useCoachComposerState } from "@/src/components/coach/coach-desk";
 import { CoachHistoryList } from "@/src/components/coach/coach-history";
 import { CoachMark } from "@/src/components/coach/coach-mark";
+import { filesFromPicker } from "@/src/lib/coach/image-attach";
 import { useCoach } from "@/src/lib/coach/context";
 
 function CoachPanelComposer() {
-  const { coach, draft, setDraft, send, placeholder } = useCoachComposerState();
+  const {
+    coach,
+    draft,
+    setDraft,
+    send,
+    placeholder,
+    attachments,
+    attachError,
+    fileInput,
+    addFiles,
+    removeAttachment,
+    canSend,
+  } = useCoachComposerState();
   if (!coach) return null;
 
   return (
@@ -19,7 +32,46 @@ function CoachPanelComposer() {
         void send();
       }}
     >
-      <div className="coach-panel-composer-bar">
+      {attachments.length > 0 && (
+        <div className="coach-attach-row">
+          {attachments.map((image, index) => (
+            <figure key={`${image.preview}-${index}`}>
+              <img src={image.preview} alt={`Scan ${index + 1}`} />
+              <button type="button" className="icon-button" aria-label="Remove image" onClick={() => removeAttachment(index)}>
+                <X size={14} />
+              </button>
+            </figure>
+          ))}
+        </div>
+      )}
+      {attachError ? <p className="coach-error" role="alert">{attachError}</p> : null}
+      <div
+        className="coach-panel-composer-bar"
+        onDragOver={(event) => {
+          event.preventDefault();
+          event.dataTransfer.dropEffect = "copy";
+        }}
+        onDrop={(event) => {
+          event.preventDefault();
+          void addFiles(filesFromPicker(event.dataTransfer.files));
+        }}
+      >
+        <label className="coach-attach-button is-panel">
+          <span className="sr-only">Attach a body composition scan</span>
+          <ImagePlus size={16} />
+          <input
+            ref={fileInput}
+            className="sr-only"
+            type="file"
+            accept="image/*"
+            multiple
+            onChange={(event) => {
+              const files = filesFromPicker(event.target.files);
+              event.target.value = "";
+              void addFiles(files);
+            }}
+          />
+        </label>
         <label>
           <span className="sr-only">Message Coach</span>
           <textarea
@@ -27,6 +79,15 @@ function CoachPanelComposer() {
             rows={1}
             placeholder={placeholder}
             onChange={(event) => setDraft(event.target.value)}
+            onPaste={(event) => {
+              const files = Array.from(event.clipboardData.items)
+                .filter((item) => item.type.startsWith("image/"))
+                .map((item) => item.getAsFile())
+                .filter((file): file is File => Boolean(file));
+              if (!files.length) return;
+              event.preventDefault();
+              void addFiles(files);
+            }}
             onKeyDown={(event) => {
               if (event.key === "Enter" && !event.shiftKey) {
                 event.preventDefault();
@@ -35,7 +96,7 @@ function CoachPanelComposer() {
             }}
           />
         </label>
-        <button className="coach-panel-send" type="submit" disabled={coach.busy || !draft.trim()} aria-label="Send">
+        <button className="coach-panel-send" type="submit" disabled={!canSend} aria-label="Send">
           <Send size={16} />
         </button>
       </div>

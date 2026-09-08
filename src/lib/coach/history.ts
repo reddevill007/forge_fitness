@@ -4,7 +4,7 @@ export const COACH_STARTERS = [
   { label: "Create a workout", prompt: "Create me a 45-minute Pull workout." },
   { label: "Analyze my progress", prompt: "Am I getting stronger?" },
   { label: "Muscle gaps", prompt: "Which muscle am I neglecting?" },
-  { label: "Best PR", prompt: "What's my best PR?" },
+  { label: "Log a body scan", prompt: "I want to log a body composition scan. I can attach the report photo or paste the numbers." },
 ];
 
 export function threadTitleFromPrompt(prompt: string) {
@@ -69,5 +69,15 @@ export function sanitizeStoredMessages(messages: CoachMessage[]): CoachMessage[]
 }
 
 export function capCoachContents(contents: CoachContent[]) {
-  return contents.slice(-40);
+  return stripCoachInlineData(contents.slice(-40));
+}
+
+export function stripCoachInlineData(contents: CoachContent[]): CoachContent[] {
+  return contents.map((content) => ({
+    ...content,
+    parts: content.parts.map((part) => {
+      if ("inlineData" in part) return { text: "[Attached a body composition scan photo.]" };
+      return part;
+    }),
+  }));
 }

@@ -20,6 +20,8 @@ import { ExerciseDemoPlayer } from "@/src/components/exercise-demo-player";
 import { ExerciseStill } from "@/src/components/exercise-still";
 import { FocusMuscleMap } from "@/src/components/focus-muscle-map";
 import { anatomeResolveExercise } from "@/src/lib/anatome";
+import { compositionDateLabel, compositionSummary } from "@/src/lib/body-composition";
+import type { BodyCompositionWrite } from "@/src/lib/body-composition";
 import { resolveDatasetMedia } from "@/src/lib/dataset-media";
 import { fetchExercise } from "@/src/lib/exercises-client";
 import { useCoach } from "@/src/lib/coach/context";
@@ -182,9 +184,29 @@ function ExerciseList({ exercises }: { exercises: WorkoutPreviewExercise[] }) {
   );
 }
 
+function compositionRows(payload: BodyCompositionWrite) {
+  const rows: Array<[string, string]> = [];
+  const push = (label: string, value?: number | string, unit = "") => {
+    if (value == null || value === "") return;
+    rows.push([label, typeof value === "number" ? `${value}${unit ? ` ${unit}` : ""}` : value]);
+  };
+  push("Weight", payload.weightKg, "kg");
+  push("Body fat", payload.bodyFatPercent, "%");
+  push("Skeletal muscle", payload.skeletalMuscleKg, "kg");
+  push("BMI", payload.bmi);
+  push("Visceral fat", payload.visceralFatIndex);
+  push("Body age", payload.bodyAge);
+  push("Health score", payload.healthScore);
+  push("Type", payload.obesityType);
+  push("Target weight", payload.targetWeightKg, "kg");
+  push("Fat to lose", payload.fatControlKg, "kg");
+  return rows;
+}
+
 function Confirmation({ write, title, summary }: { write: PendingWrite; title: string; summary: string }) {
   const coach = useCoach();
   const exercises = write.payload && "exercises" in write.payload ? write.payload.exercises : undefined;
+  const scanReports = write.tool === "save_body_composition" ? write.payload.reports : [];
   return (
     <article className="coach-card coach-confirm">
       <span className="eyebrow">Needs your OK</span>
@@ -192,6 +214,25 @@ function Confirmation({ write, title, summary }: { write: PendingWrite; title: s
       <p>{summary}</p>
       {exercises && exercises.length > 0 && (
         <ExerciseList exercises={exercises} />
+      )}
+      {scanReports.length > 0 && (
+        <div className="coach-scan-reports">
+          {scanReports.map((report, index) => {
+            const rows = compositionRows(report);
+            return (
+              <div key={`${report.measuredAt ?? "scan"}-${index}`} className="coach-scan-report">
+                <strong>{compositionDateLabel(report.measuredAt)}</strong>
+                {rows.length > 0 && (
+                  <ul className="body-scan-preview">
+                    {rows.map(([label, value]) => (
+                      <li key={label}><span>{label}</span><strong>{value}</strong></li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            );
+          })}
+        </div>
       )}
       <div className="coach-actions">
         <button type="button" className="outline-button" onClick={() => coach?.dismissWrite(write)}>
@@ -445,6 +486,35 @@ export function CoachBlockView({ block }: { block: CoachBlock }) {
           </ol>
         </article>
       );
+    case "body_scan_card": {
+      const payload: BodyCompositionWrite = {
+        weightKg: block.weightKg,
+        bodyFatPercent: block.bodyFatPercent,
+        skeletalMuscleKg: block.skeletalMuscleKg,
+        bmi: block.bmi,
+        visceralFatIndex: block.visceralFatIndex,
+        bodyAge: block.bodyAge,
+        healthScore: block.healthScore,
+        obesityType: block.obesityType,
+        targetWeightKg: block.targetWeightKg,
+      };
+      const rows = compositionRows(payload);
+      return (
+        <article className="coach-card coach-scan">
+          <span className="eyebrow">Body scan</span>
+          <h3>{block.measuredAt ? compositionDateLabel(block.measuredAt) : compositionSummary(payload)}</h3>
+          {block.obesityType ? <p>{block.obesityType}</p> : <p>{compositionSummary(payload)}</p>}
+          {rows.length > 0 && (
+            <ul className="body-scan-preview">
+              {rows.map(([label, value]) => (
+                <li key={label}><span>{label}</span><strong>{value}</strong></li>
+              ))}
+            </ul>
+          )}
+          <ActionRow items={[{ id: "open-body", label: "Open body analysis", kind: "navigate", href: "/body" }]} />
+        </article>
+      );
+    }
     case "actions":
       return <ActionRow items={block.items} />;
     default:

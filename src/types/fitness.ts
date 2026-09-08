@@ -129,9 +129,17 @@ export type BodyPhoto = {
   weight?: number;
 };
 
+export type BodyMeasurementSource = "manual" | "scan" | "chat";
+
+export type BodySegmentMass = {
+  muscleKg?: number;
+  fatKg?: number;
+};
+
 export type BodyMeasurement = {
   id: string;
   measuredAt: string;
+  source?: BodyMeasurementSource;
   weight?: number;
   bodyFat?: number;
   waist?: number;
@@ -140,4 +148,29 @@ export type BodyMeasurement = {
   arms?: number;
   thighs?: number;
   calves?: number;
+  moistureKg?: number;
+  proteinKg?: number;
+  mineralKg?: number;
+  fatKg?: number;
+  fatFreeMassKg?: number;
+  skeletalMuscleKg?: number;
+  bmi?: number;
+  waistHipRatio?: number;
+  subcutaneousFatKg?: number;
+  visceralFatIndex?: number;
+  obesityType?: string;
+  targetWeightKg?: number;
+  weightControlKg?: number;
+  fatControlKg?: number;
+  muscleControlKg?: number;
+  basalMetabolismKcal?: number;
+  healthScore?: number;
+  bodyAge?: number;
+  segmental?: {
+    leftArm?: BodySegmentMass;
+    rightArm?: BodySegmentMass;
+    trunk?: BodySegmentMass;
+    leftLeg?: BodySegmentMass;
+    rightLeg?: BodySegmentMass;
+  };
 };
