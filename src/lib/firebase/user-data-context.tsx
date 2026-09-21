@@ -54,7 +54,15 @@ import type { ActiveSessionProgress, StoredProgram, StoredSession, StoredWorkout
 import { isTrashed } from "@/src/lib/firebase/types";
 import type { BodyMeasurement, BodyPhoto, CustomExerciseInput, Exercise, PersonalRecord, WorkoutDay, WorkoutProgram } from "@/src/types/fitness";
 import { deleteStoredFile, uploadBodyPhoto, uploadCustomExerciseMedia } from "@/src/lib/firebase/storage";
-import { newRecordsToSave, recordsFromTraining, stampExerciseSessions, elapsedSeconds } from "@/src/lib/firebase/stats";
+import {
+  activeSessionHasLoggedWork,
+  activeSessionIsStale,
+  activeSessionLoggedSetCount,
+  elapsedSeconds,
+  newRecordsToSave,
+  recordsFromTraining,
+  stampExerciseSessions,
+} from "@/src/lib/firebase/stats";
 import { resolveTodaysWorkout } from "@/src/lib/program-schedule";
 import {
   enqueueOutbox,
@@ -128,12 +136,21 @@ export type UserDataContextValue = {
   deleteMeasurement: (measurementId: string) => Promise<void>;
   saveBodyPhoto: (input: { file: File; pose: BodyPhoto["pose"]; takenAt: string; weight?: number }) => Promise<string>;
   deleteBodyPhoto: (photoId: string) => Promise<void>;
+  autoSubmittedNotice: AutoSubmittedNotice | null;
+  dismissAutoSubmittedNotice: () => void;
   saveVideoUrl: (exerciseId: string, videoUrl: string) => Promise<void>;
   videoUrlForExercise: (exerciseId: string, name?: string) => string | undefined;
   addExerciseToCatalog: (exercise: CustomExerciseInput) => Promise<string>;
   patchCustomExercise: (exerciseId: string, patch: Partial<Exercise>) => Promise<void>;
   uploadExerciseMedia: (exerciseId: string, kind: "gif" | "image", file: File) => Promise<string>;
   addExerciseFromCatalog: (workoutId: string, exercise: Exercise, restSeconds?: number) => Promise<void>;
+};
+
+export type AutoSubmittedNotice = {
+  sessionId: string;
+  workoutName: string;
+  startedAt: string;
+  setCount: number;
 };
 
 const UserDataContext = createContext<UserDataContextValue | null>(null);
@@ -157,9 +174,11 @@ export function UserDataProvider({ children }: { children: ReactNode }) {
   const [pendingSyncCount, setPendingSyncCount] = useState(0);
   const [syncing, setSyncing] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [autoSubmittedNotice, setAutoSubmittedNotice] = useState<AutoSubmittedNotice | null>(null);
   const workoutsRef = useRef(workouts);
   workoutsRef.current = workouts;
   const workoutPersistChain = useRef(Promise.resolve());
+  const autoSubmitInFlight = useRef<string | null>(null);
 
   useEffect(() => {
     if (!uid) {
@@ -180,6 +199,8 @@ export function UserDataProvider({ children }: { children: ReactNode }) {
         setPendingSyncCount(0);
         setSyncing(false);
         setLoading(false);
+        setAutoSubmittedNotice(null);
+        autoSubmitInFlight.current = null;
       });
       return;
     }
@@ -681,6 +702,71 @@ export function UserDataProvider({ children }: { children: ReactNode }) {
     [persistWorkout, videoUrlForExercise],
   );
 
+  const dismissAutoSubmittedNotice = useCallback(() => setAutoSubmittedNotice(null), []);
+
+  // Auto-submit any active session left over from a previous day.
+  // If the athlete forgets to hit "Finish workout", we save what they logged
+  // instead of losing it or forcing them to resume a stale session.
+  useEffect(() => {
+    if (!uid || !activeSessionLoaded || !activeSession) return;
+    if (!activeSessionIsStale(activeSession)) return;
+
+    const sessionKey = `${activeSession.workoutId}:${activeSession.startedAt}`;
+    if (autoSubmitInFlight.current === sessionKey) return;
+
+    // Nothing was logged — quietly clear the stale draft so today can start fresh.
+    if (!activeSessionHasLoggedWork(activeSession)) {
+      autoSubmitInFlight.current = sessionKey;
+      void clearActiveSessionProgress().finally(() => {
+        if (autoSubmitInFlight.current === sessionKey) autoSubmitInFlight.current = null;
+      });
+      return;
+    }
+
+    // There are logged sets — auto-submit them as a completed session.
+    const workoutFromLibrary = workoutsRef.current.find((item) => item.id === activeSession.workoutId);
+    const workout: StoredWorkout = workoutFromLibrary ?? {
+      id: activeSession.workoutId,
+      name: activeSession.workoutName,
+      focus: activeSession.focus,
+      duration: Math.max(1, Math.round((activeSession.durationSeconds ?? 0) / 60)),
+      exercises: activeSession.exerciseSessions.map((session) => ({
+        id: session.workoutExerciseId,
+        exerciseId: session.exerciseId ?? session.workoutExerciseId,
+        name: session.exerciseName ?? "Exercise",
+        target: "",
+        secondary: [],
+        prescription: "",
+        restSeconds: 90,
+      })),
+      createdAt: activeSession.startedAt,
+      updatedAt: activeSession.updatedAt,
+    };
+
+    const pending: PendingSession = {
+      workout,
+      startedAt: activeSession.startedAt,
+      durationSeconds: activeSession.durationSeconds ?? elapsedSeconds(activeSession.startedAt),
+      exerciseSessions: activeSession.exerciseSessions,
+    };
+    const noticeDraft: AutoSubmittedNotice = {
+      sessionId: "",
+      workoutName: workout.name || "Workout",
+      startedAt: activeSession.startedAt,
+      setCount: activeSessionLoggedSetCount(activeSession),
+    };
+
+    autoSubmitInFlight.current = sessionKey;
+    void completeSession(pending)
+      .then((sessionId) => {
+        setAutoSubmittedNotice({ ...noticeDraft, sessionId });
+      })
+      .catch(() => undefined)
+      .finally(() => {
+        if (autoSubmitInFlight.current === sessionKey) autoSubmitInFlight.current = null;
+      });
+  }, [uid, activeSessionLoaded, activeSession, completeSession, clearActiveSessionProgress]);
+
   const value = useMemo(
     () => ({
       profile,
@@ -726,6 +812,8 @@ export function UserDataProvider({ children }: { children: ReactNode }) {
       deleteMeasurement: removeMeasurement,
       saveBodyPhoto,
       deleteBodyPhoto: removeBodyPhoto,
+      autoSubmittedNotice,
+      dismissAutoSubmittedNotice,
       saveVideoUrl,
       videoUrlForExercise,
       addExerciseToCatalog,
@@ -777,6 +865,8 @@ export function UserDataProvider({ children }: { children: ReactNode }) {
       removeMeasurement,
       saveBodyPhoto,
       removeBodyPhoto,
+      autoSubmittedNotice,
+      dismissAutoSubmittedNotice,
       saveVideoUrl,
       videoUrlForExercise,
       addExerciseToCatalog,

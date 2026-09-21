@@ -4,6 +4,7 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { Bell, Command, LogOut, Menu, Moon, MoreHorizontal, Search, Sun } from "lucide-react";
 import { useEffect, useState } from "react";
+import { AutoSubmitNotice } from "@/src/components/auto-submit-notice";
 import { ForgeMark, Scribble } from "@/src/components/doodles";
 import { CoachHost } from "@/src/components/coach/coach-host";
 import { CoachMark } from "@/src/components/coach/coach-mark";
@@ -128,6 +129,8 @@ function AppShellInner({ children }: { children: React.ReactNode }) {
         </header>
         <div className="page-shell">{children}</div>
       </main>
+
+      <AutoSubmitNotice />
 
       {globalSearchOpen && (
         <GlobalSearch

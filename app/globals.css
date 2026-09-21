@@ -3029,6 +3029,87 @@ kbd {
   to { opacity: 1; transform: none; }
 }
 
+.auto-submit-notice {
+  position: fixed;
+  z-index: 92;
+  right: 22px;
+  bottom: 22px;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: start;
+  gap: 12px;
+  max-width: 360px;
+  padding: 14px 16px;
+  border: 1px solid color-mix(in srgb, var(--lime-dark) 40%, var(--line));
+  border-radius: 18px;
+  background: color-mix(in srgb, var(--lime-soft) 82%, var(--paper-2));
+  color: var(--ink);
+  box-shadow: var(--shadow);
+  animation: toast-in 220ms ease both;
+}
+
+.auto-submit-notice-icon {
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--lime) 55%, var(--paper));
+  color: var(--ink);
+}
+
+.auto-submit-notice-body {
+  display: grid;
+  gap: 4px;
+}
+
+.auto-submit-notice-body strong {
+  font-size: 13px;
+  letter-spacing: -.02em;
+}
+
+.auto-submit-notice-body p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.auto-submit-notice-link {
+  justify-self: start;
+  padding: 3px 0;
+  color: var(--ink);
+  font-size: 12px;
+  font-weight: 700;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.auto-submit-notice-close {
+  align-self: start;
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--muted);
+}
+
+.auto-submit-notice-close:hover {
+  background: color-mix(in srgb, var(--ink) 8%, transparent);
+  color: var(--ink);
+}
+
+@media (max-width: 720px) {
+  .auto-submit-notice {
+    right: 12px;
+    left: 12px;
+    bottom: 88px;
+    max-width: none;
+  }
+}
+
 .exercise-progress {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;

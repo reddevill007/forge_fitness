@@ -101,6 +101,33 @@ export function hasLoggedWork(session: StoredSession) {
   return sessionSetCount(session) > 0;
 }
 
+function calendarDayKey(value: string | Date) {
+  const date = typeof value === "string" ? new Date(value) : value;
+  if (Number.isNaN(date.getTime())) return "";
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, "0");
+  const d = String(date.getDate()).padStart(2, "0");
+  return `${y}-${m}-${d}`;
+}
+
+export function activeSessionLoggedSetCount(progress: ActiveSessionProgress) {
+  return progress.exerciseSessions.reduce(
+    (total, exercise) => total + exercise.sets.filter((set) => workingSet(set)).length,
+    0,
+  );
+}
+
+export function activeSessionHasLoggedWork(progress: ActiveSessionProgress) {
+  return activeSessionLoggedSetCount(progress) > 0;
+}
+
+/** True when the session was started on a previous calendar day (local time). */
+export function activeSessionIsStale(progress: ActiveSessionProgress, now: Date = new Date()) {
+  const startedKey = calendarDayKey(progress.startedAt);
+  const todayKey = calendarDayKey(now);
+  return Boolean(startedKey) && startedKey < todayKey;
+}
+
 export function stampExerciseSessions(
   exercises: WorkoutExercise[],
   sessions: ExerciseSession[],
