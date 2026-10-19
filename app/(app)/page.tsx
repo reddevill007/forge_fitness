@@ -9,7 +9,11 @@ export default function HomePage() {
   const { todaysWorkout } = useUserData();
   return (
     <Dashboard
-      onStart={() => {
+      onStart={(workoutId) => {
+        if (workoutId) {
+          router.push(`/workout?w=${encodeURIComponent(workoutId)}`);
+          return;
+        }
         if (todaysWorkout?.exercises.length) router.push("/workout");
         else router.push("/workouts");
       }}

@@ -108,6 +108,8 @@ import {
   calendarDayKind,
   formatShortDate,
   formatWeekdayLong,
+  isSameLocalDay,
+  lastSkippedWorkout,
   nextScheduledWorkout,
   programSlotForDate,
   weekdayKey,
@@ -275,8 +277,43 @@ function ExerciseProgressGraph({ values, latest }: { values: number[]; latest: n
   );
 }
 
-export function Dashboard({ onStart }: { onStart: () => void }) {
+function MissedDayChoice({
+  missedName,
+  plannedLabel,
+  onMissed,
+  onPlanned,
+  plannedDisabled = false,
+  emphasize = "planned",
+}: {
+  missedName: string;
+  plannedLabel: string;
+  onMissed: () => void;
+  onPlanned: () => void;
+  plannedDisabled?: boolean;
+  emphasize?: "planned" | "missed";
+}) {
+  const missedClass = emphasize === "missed" ? "primary-button dark-button" : "outline-button";
+  const plannedClass = emphasize === "planned" ? "primary-button dark-button" : "outline-button";
+  return (
+    <div className="catchup-actions">
+      <button type="button" className={missedClass} onClick={onMissed}>
+        <span className="catchup-label"><SkipForward size={16} /> Do skipped workout</span>
+        <small>{missedName}</small>
+      </button>
+      <button type="button" className={plannedClass} onClick={onPlanned} disabled={plannedDisabled}>
+        <span className="catchup-label">
+          {emphasize === "planned" ? <Play size={16} fill="currentColor" /> : <Moon size={16} />}
+          {plannedLabel}
+        </span>
+        <small>{emphasize === "planned" ? "Planned for today" : "Stay on today's plan"}</small>
+      </button>
+    </div>
+  );
+}
+
+export function Dashboard({ onStart }: { onStart: (workoutId?: string) => void }) {
   const { profile, todaysWorkout, sessions, records, workouts, activeSession, activeProgram } = useUserData();
+  const [stayOnPlan, setStayOnPlan] = useState(false);
   const [mapView, setMapView] = useState<"front" | "back" | "dual">("front");
   const training = loggedSessions(sessions, activeSession);
   const week = weeklyStats(training);
@@ -304,11 +341,20 @@ export function Dashboard({ onStart }: { onStart: () => void }) {
   const activeWorkout = todaysWorkout;
   const restDay = Boolean(activeProgram) && !activeWorkout;
   const nextUp = restDay ? nextScheduledWorkout(activeProgram, workouts) : null;
+  const missed = lastSkippedWorkout({ program: activeProgram, workouts, sessions: training });
+  const trainedToday = training.some((session) => isSameLocalDay(new Date(session.startedAt), new Date()));
+  const todayDone = workoutCompletedToday(training, activeWorkout);
+  const offerCatchup = Boolean(
+    missed
+    && !stayOnPlan
+    && !trainedToday
+    && !todayDone
+    && (restDay || missed.workout.id !== activeWorkout?.id),
+  );
   const thisWeekVolume = volumeSeries.at(-1)?.value ?? 0;
   const lastWeekVolume = volumeSeries.at(-2)?.value ?? 0;
   const volumeDelta = lastWeekVolume > 0 ? Math.round(((thisWeekVolume - lastWeekVolume) / lastWeekVolume) * 100) : null;
   const recent = training.slice(0, 4);
-  const todayDone = workoutCompletedToday(training, activeWorkout);
   useCoachPage({
     currentPage: "dashboard",
     currentWorkout: activeWorkout ? { id: activeWorkout.id, name: activeWorkout.name, focus: activeWorkout.focus } : null,
@@ -345,15 +391,19 @@ export function Dashboard({ onStart }: { onStart: () => void }) {
           <span className="eyebrow">{todayLabel()}</span>
           <h1>Welcome back, {name}.</h1>
           <p>
-            {restDay
-              ? nextUp
-                ? `Rest day. ${nextUp.workout.name} is next on ${formatWeekdayLong(nextUp.date)}.`
-                : "Rest day — nothing is scheduled today."
-              : activeWorkout
-                ? todayDone
-                  ? `You finished ${activeWorkout.name} today.`
-                  : (activeWorkout.exercises.length > 0 ? `Ready for ${activeWorkout.name}.` : "Add exercises to your active workout.")
-                : "No session is scheduled today — your recent training is below."}
+            {offerCatchup && missed
+              ? restDay
+                ? `You missed ${missed.workout.name} on ${formatWeekdayLong(missed.date)}. Do that session, or keep today's rest.`
+                : `You missed ${missed.workout.name} on ${formatWeekdayLong(missed.date)}. Do that session, or start ${activeWorkout?.name ?? "today's plan"}.`
+              : restDay
+                ? nextUp
+                  ? `Rest day. ${nextUp.workout.name} is next on ${formatWeekdayLong(nextUp.date)}.`
+                  : "Rest day — nothing is scheduled today."
+                : activeWorkout
+                  ? todayDone
+                    ? `You finished ${activeWorkout.name} today.`
+                    : (activeWorkout.exercises.length > 0 ? `Ready for ${activeWorkout.name}.` : "Add exercises to your active workout.")
+                  : "No session is scheduled today — your recent training is below."}
           </p>
           <ContextualAiActions
             actions={[
@@ -386,13 +436,25 @@ export function Dashboard({ onStart }: { onStart: () => void }) {
                 </p>
                 <div className="hero-meta">
                   <span><Moon size={17} /> Recovery</span>
-                  {nextUp && (
+                  {offerCatchup && missed ? (
+                    <span><SkipForward size={17} /> Missed {formatShortDate(missed.date)}</span>
+                  ) : nextUp ? (
                     <span><Dumbbell size={17} /> Next: {nextUp.workout.name} · {formatWeekdayLong(nextUp.date)}</span>
-                  )}
+                  ) : null}
                 </div>
-                <Link className="primary-button dark-button" href="/programs">
-                  View program <ArrowRight size={17} />
-                </Link>
+                {offerCatchup && missed ? (
+                  <MissedDayChoice
+                    missedName={missed.workout.name}
+                    plannedLabel="Keep today's rest"
+                    emphasize="missed"
+                    onMissed={() => onStart(missed.workout.id)}
+                    onPlanned={() => setStayOnPlan(true)}
+                  />
+                ) : (
+                  <Link className="primary-button dark-button" href="/programs">
+                    View program <ArrowRight size={17} />
+                  </Link>
+                )}
               </div>
               <DumbbellDoodle className="hero-dumbbell float-doodle" />
               <div className="hero-noise" />
@@ -401,8 +463,8 @@ export function Dashboard({ onStart }: { onStart: () => void }) {
           <article className="workout-hero reveal delay-1">
             <div className="hero-copy">
               <span className={`paper-tag ${todayDone ? "is-complete" : ""}`}>
-                {todayDone ? <Check size={14} /> : <Zap size={14} fill="currentColor" />}
-                {todayDone ? "Completed today" : "Active workout"}
+                {todayDone ? <Check size={14} /> : offerCatchup ? <SkipForward size={14} /> : <Zap size={14} fill="currentColor" />}
+                {todayDone ? "Completed today" : offerCatchup ? "Missed a session" : "Active workout"}
               </span>
               <h2>{firstName} {lastName !== firstName ? <em>{lastName}</em> : null}</h2>
               <p>{activeWorkout.focus || "Your session"}</p>
@@ -414,11 +476,19 @@ export function Dashboard({ onStart }: { onStart: () => void }) {
                 <Link className="primary-button dark-button is-complete" href="/history">
                   <Check size={17} /> Completed
                 </Link>
+              ) : offerCatchup && missed ? (
+                <MissedDayChoice
+                  missedName={missed.workout.name}
+                  plannedLabel={`Start ${activeWorkout.name}`}
+                  plannedDisabled={activeWorkout.exercises.length === 0}
+                  onMissed={() => onStart(missed.workout.id)}
+                  onPlanned={() => onStart()}
+                />
               ) : (
                 <button
                   className="primary-button dark-button"
                   type="button"
-                  onClick={onStart}
+                  onClick={() => onStart()}
                   disabled={activeWorkout.exercises.length === 0}
                 >
                   <Play size={17} fill="currentColor" /> Start workout <ArrowRight size={17} />
@@ -650,8 +720,18 @@ export function Dashboard({ onStart }: { onStart: () => void }) {
             <Link className="primary-button workout-start-mobile is-complete" href="/history">
               <Check size={17} /> Completed
             </Link>
+          ) : offerCatchup && missed ? (
+            <div className="catchup-mobile">
+              <MissedDayChoice
+                missedName={missed.workout.name}
+                plannedLabel={`Start ${activeWorkout.name}`}
+                plannedDisabled={activeWorkout.exercises.length === 0}
+                onMissed={() => onStart(missed.workout.id)}
+                onPlanned={() => onStart()}
+              />
+            </div>
           ) : (
-            <button className="primary-button workout-start-mobile" type="button" onClick={onStart}>
+            <button className="primary-button workout-start-mobile" type="button" onClick={() => onStart()}>
               <Play size={17} fill="currentColor" /> Start {activeWorkout.name}
             </button>
           )}
@@ -1199,8 +1279,11 @@ function ExerciseCard({ exercise, index, onSelect }: { exercise: Exercise; index
 }
 
 export function ActiveWorkout({ onExit, onComplete }: { onExit: () => void; onComplete: () => void }) {
-  const { todaysWorkout, activeWorkout, activeSession, activeSessionLoaded } = useUserData();
-  const sessionWorkout = todaysWorkout ?? activeWorkout;
+  const searchParams = useSearchParams();
+  const requestedId = searchParams.get("w");
+  const { todaysWorkout, activeWorkout, workouts, activeSession, activeSessionLoaded } = useUserData();
+  const requested = requestedId ? workouts.find((workout) => workout.id === requestedId) ?? null : null;
+  const sessionWorkout = requested ?? todaysWorkout ?? activeWorkout;
 
   if (!sessionWorkout || sessionWorkout.exercises.length === 0) {
     return (
@@ -1440,7 +1523,13 @@ function ActiveWorkoutSession({
     };
   }, [rest === null, paused]);
 
+  const activeSessionRef = useRef(activeSession);
+  activeSessionRef.current = activeSession;
+
   const persistSnapshot = useCallback(async (nextSessions: ExerciseSession[], index: number) => {
+    const hasWork = nextSessions.some((session) => session.sets.some((set) => workingSet(set)));
+    const liveSession = activeSessionRef.current;
+    if (firstPersist.current && liveSession && liveSession.workoutId !== workout.id && !hasWork) return;
     const silent = firstPersist.current;
     if (!silent) setSaveStatus("saving");
     try {

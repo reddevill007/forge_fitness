@@ -68,6 +68,39 @@ export function nextScheduledWorkout(
   return null;
 }
 
+export type SkippedWorkout = {
+  date: Date;
+  workout: StoredWorkout;
+};
+
+export function lastSkippedWorkout(input: {
+  program: StoredProgram | null | undefined;
+  workouts: StoredWorkout[];
+  sessions: Array<{ startedAt: string }>;
+  today?: Date;
+  lookbackDays?: number;
+}): SkippedWorkout | null {
+  if (!input.program) return null;
+  const today = startOfLocalDay(input.today ?? new Date());
+  const lookback = input.lookbackDays ?? 14;
+  const trained = new Set<number>();
+  for (const session of input.sessions) {
+    const started = new Date(session.startedAt);
+    if (Number.isNaN(started.getTime())) continue;
+    trained.add(startOfLocalDay(started).getTime());
+  }
+
+  for (let offset = 1; offset <= lookback; offset += 1) {
+    const date = new Date(today);
+    date.setDate(today.getDate() - offset);
+    if (trained.has(date.getTime())) return null;
+    const workout = workoutForDate(input.program, input.workouts, date);
+    if (!workout?.exercises.length) continue;
+    return { date, workout };
+  }
+  return null;
+}
+
 export function sessionsOnLocalDay(sessions: StoredSession[], date: Date) {
   return sessions.filter((session) => isSameLocalDay(new Date(session.startedAt), date));
 }

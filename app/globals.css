@@ -734,6 +734,65 @@ kbd {
   font-weight: 700;
 }
 
+.catchup-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  position: relative;
+  z-index: 3;
+}
+
+.catchup-actions button {
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  min-height: 58px;
+  padding: 10px 14px;
+  text-align: left;
+}
+
+.catchup-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.catchup-actions small {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0;
+  opacity: .72;
+  text-transform: none;
+}
+
+.workout-hero:not(.is-rest) .catchup-actions .outline-button {
+  border-color: rgba(21, 23, 16, .22);
+  background: rgba(255, 255, 255, .72);
+  color: #151710;
+}
+
+.catchup-mobile {
+  display: none;
+}
+
+.catchup-mobile .catchup-actions {
+  width: 100%;
+}
+
+.catchup-mobile .catchup-actions button {
+  flex: 1 1 100%;
+}
+
+@media (max-width: 620px) {
+  .workout-hero .catchup-actions {
+    flex-direction: column;
+  }
+
+  .workout-hero .catchup-actions button {
+    width: 100%;
+  }
+}
+
 .primary-button,
 .outline-button,
 .text-button,
@@ -3690,7 +3749,9 @@ kbd {
 
 .danger-button:disabled,
 .outline-button:disabled,
-.outline-button.is-disabled {
+.outline-button.is-disabled,
+.primary-button:disabled,
+.dark-button:disabled {
   opacity: .55;
   cursor: not-allowed;
   transform: none;
@@ -7443,6 +7504,7 @@ label.outline-button {
   .prescription { text-align: right; }
   .today-list .section-heading .outline-button { display: none; }
   .workout-start-mobile { display: flex; width: 100%; margin-top: 15px; min-height: 49px; }
+  .catchup-mobile { display: block; margin-top: 15px; }
   .page-intro { min-height: auto; align-items: start; flex-direction: column; gap: 16px; }
   .page-intro .page-actions { width: 100%; }
   .page-intro .page-actions > * { flex: 1 1 calc(50% - .4rem); min-width: 140px; }
